@@ -1,0 +1,683 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from "recharts";
+
+const API = "http://localhost:8000";
+const WS_URL = "ws://localhost:8000/ws/signals";
+
+// ── Colour tokens ────────────────────────────────────────────
+const C = {
+  bg:       "#050810",
+  panel:    "#0b0f1e",
+  border:   "#131929",
+  accent:   "#00d4ff",
+  buy:      "#00e896",
+  sell:     "#ff3d6b",
+  warn:     "#ffb830",
+  muted:    "#4a5568",
+  text:     "#e2e8f0",
+  dim:      "#8892a4",
+};
+
+// ── Tiny helpers ─────────────────────────────────────────────
+const fmt  = (n, d = 5) => (typeof n === "number" ? n.toFixed(d) : "—");
+const pct  = (n) => (typeof n === "number" ? `${(n * 100).toFixed(1)}%` : "—");
+const cash = (n) => (typeof n === "number" ? `$${n.toLocaleString("en", { minimumFractionDigits: 2 })}` : "—");
+const dirColor = (d) => (d === "buy" ? C.buy : d === "sell" ? C.sell : C.dim);
+const verdictColor = (v) => ({ green: C.buy, yellow: C.warn, red: C.sell }[v] || C.dim);
+
+// ── Reusable Card ────────────────────────────────────────────
+function Card({ title, children, accent, style = {} }) {
+  return (
+    <div style={{
+      background: C.panel,
+      border: `1px solid ${accent || C.border}`,
+      borderRadius: 12,
+      padding: "18px 20px",
+      ...style,
+    }}>
+      {title && (
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: C.dim, textTransform: "uppercase", marginBottom: 14 }}>
+          {title}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+// ── Stat pill ────────────────────────────────────────────────
+function Stat({ label, value, color }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <span style={{ fontSize: 10, color: C.dim, textTransform: "uppercase", letterSpacing: 1.5 }}>{label}</span>
+      <span style={{ fontSize: 20, fontWeight: 800, fontFamily: "'Space Mono', monospace", color: color || C.text }}>{value}</span>
+    </div>
+  );
+}
+
+// ── Signal Card ───────────────────────────────────────────────
+function SignalCard({ signal }) {
+  const dir = signal.direction;
+  const col = dirColor(dir);
+  const conf = signal.confidence || 0;
+
+  return (
+    <div style={{
+      background: `linear-gradient(135deg, ${C.panel} 0%, #0e1628 100%)`,
+      border: `1px solid ${col}33`,
+      borderLeft: `3px solid ${col}`,
+      borderRadius: 10,
+      padding: "14px 16px",
+      marginBottom: 10,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 16, fontWeight: 800, color: C.text }}>{signal.pair}</span>
+          <span style={{ fontSize: 11, background: `${col}22`, color: col, borderRadius: 4, padding: "2px 7px", fontWeight: 700 }}>
+            {dir?.toUpperCase()}
+          </span>
+          <span style={{ fontSize: 10, color: C.dim }}>{signal.timeframe}</span>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 10, color: C.dim }}>Confidence</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: conf >= 0.75 ? C.buy : conf >= 0.5 ? C.warn : C.sell }}>
+            {pct(conf)}
+          </div>
+        </div>
+      </div>
+
+      {/* Confidence bar */}
+      <div style={{ height: 3, background: C.border, borderRadius: 2, marginBottom: 12 }}>
+        <div style={{ height: "100%", width: `${conf * 100}%`, background: col, borderRadius: 2, transition: "width 0.5s" }} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, fontSize: 12 }}>
+        {[
+          ["Entry", fmt(signal.entry_price), C.text],
+          ["Stop", fmt(signal.stop_loss), C.sell],
+          ["TP1", fmt(signal.take_profit_1), C.buy],
+        ].map(([l, v, c]) => (
+          <div key={l}>
+            <div style={{ color: C.dim, fontSize: 10 }}>{l}</div>
+            <div style={{ color: c, fontFamily: "monospace", fontWeight: 600 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 10, fontSize: 11, color: C.dim, display: "flex", gap: 12 }}>
+        <span>Pattern: <span style={{ color: C.text }}>{signal.pattern?.replace(/_/g, " ")}</span></span>
+        <span>R:R 1:<span style={{ color: C.buy }}>{fmt(signal.risk_reward_1, 1)}</span></span>
+      </div>
+
+      {signal.explanation && (
+        <div style={{ marginTop: 10, padding: "8px 10px", background: "#0a0e1a", borderRadius: 6, fontSize: 11, color: C.dim, lineHeight: 1.6 }}>
+          {signal.explanation.slice(0, 200)}{signal.explanation.length > 200 ? "…" : ""}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Circuit Breaker Panel ─────────────────────────────────────
+function CircuitBreakerPanel({ stats }) {
+  if (!stats) return null;
+  const items = [
+    ["Daily Loss", `${stats.daily_loss_pct?.toFixed(1)}%`, stats.daily_loss_pct > stats.daily_loss_limit_pct * 0.8 ? C.sell : C.buy],
+    ["Weekly Loss", `${stats.weekly_loss_pct?.toFixed(1)}%`, stats.weekly_loss_pct > stats.weekly_loss_limit_pct * 0.8 ? C.sell : C.buy],
+    ["Drawdown", `${stats.current_drawdown_pct?.toFixed(1)}%`, stats.current_drawdown_pct > 10 ? C.sell : C.buy],
+    ["Consec. Losses", stats.consecutive_losses, stats.consecutive_losses >= 3 ? C.warn : C.buy],
+  ];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      {items.map(([label, value, color]) => (
+        <div key={label} style={{ background: C.bg, borderRadius: 8, padding: "10px 12px" }}>
+          <div style={{ fontSize: 10, color: C.dim, marginBottom: 3 }}>{label}</div>
+          <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color }}>{value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// MAIN DASHBOARD
+// ══════════════════════════════════════════════════════════════
+
+export default function Dashboard() {
+  const [signals,      setSignals]      = useState([]);
+  const [health,       setHealth]       = useState(null);
+  const [engineStatus, setEngineStatus] = useState(null);
+  const [wsStatus,     setWsStatus]     = useState("connecting");
+  const [liveLog,      setLiveLog]      = useState([]);
+  const [scanLoading,  setScanLoading]  = useState(false);
+  const [activeTab,    setActiveTab]    = useState("signals");
+  const [backtest,     setBacktest]     = useState(null);
+  const [mcResult,     setMcResult]     = useState(null);
+  const [mcLoading,    setMcLoading]    = useState(false);
+  const [killLoading,  setKillLoading]  = useState(false);
+  const [pair,         setPair]         = useState("EURUSD");
+  const [sessionInfo,  setSessionInfo]  = useState(null);
+  const [newsInfo,     setNewsInfo]     = useState(null);
+  const [equityCurve,  setEquityCurve]  = useState([]);
+
+  const wsRef    = useRef(null);
+  const logRef   = useRef(null);
+
+  const addLog = useCallback((msg, type = "info") => {
+    const entry = { msg, type, time: new Date().toLocaleTimeString() };
+    setLiveLog(prev => [entry, ...prev].slice(0, 60));
+  }, []);
+
+  // ── WebSocket ──────────────────────────────────────────────
+  useEffect(() => {
+    function connect() {
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
+
+      ws.onopen  = () => { setWsStatus("connected"); addLog("WebSocket connected", "success"); };
+      ws.onclose = () => { setWsStatus("disconnected"); addLog("WebSocket disconnected — reconnecting…", "warn"); setTimeout(connect, 3000); };
+      ws.onerror = () => { setWsStatus("error"); };
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === "new_signal") {
+            addLog(`🔔 New signal: ${msg.pair} ${msg.direction?.toUpperCase()} — ${(msg.confidence * 100).toFixed(0)}% confidence`, "signal");
+            setSignals(prev => [msg, ...prev].slice(0, 20));
+          } else if (msg.type === "trade_close") {
+            addLog(`✅ Trade closed: ${msg.pair} ${msg.result?.toUpperCase()} PnL=${msg.pnl >= 0 ? "+" : ""}$${msg.pnl?.toFixed(2)}`, msg.result === "win" ? "success" : "error");
+          } else if (msg.type === "engine_status") {
+            setEngineStatus(msg.status);
+          }
+        } catch {}
+      };
+    }
+    connect();
+    return () => wsRef.current?.close();
+  }, [addLog]);
+
+  // ── Fetch health every 30s ─────────────────────────────────
+  useEffect(() => {
+    const fetch_health = async () => {
+      try {
+        const r = await fetch(`${API}/health`);
+        const d = await r.json();
+        setHealth(d);
+        if (d.engine) setEngineStatus(d.engine);
+      } catch {}
+    };
+    fetch_health();
+    const id = setInterval(fetch_health, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // ── Fetch session + news ───────────────────────────────────
+  useEffect(() => {
+    const fetchFilters = async () => {
+      try {
+        const [sRes, nRes] = await Promise.all([
+          fetch(`${API}/api/signals/session?pair=${pair}`),
+          fetch(`${API}/api/signals/news?pair=${pair}&hours_ahead=12`),
+        ]);
+        setSessionInfo(await sRes.json());
+        setNewsInfo(await nRes.json());
+      } catch {}
+    };
+    fetchFilters();
+  }, [pair]);
+
+  // ── Actions ────────────────────────────────────────────────
+  const triggerScan = async () => {
+    setScanLoading(true);
+    addLog("⏱ Manual scan triggered…", "info");
+    try {
+      const r = await fetch(`${API}/api/signals/engine/scan`, { method: "POST" });
+      const d = await r.json();
+      addLog(`Scan complete — ${d.signals_found} signal(s) found across ${d.pairs_scanned} pairs`, "success");
+      if (d.decisions) {
+        const sigs = d.decisions.filter(dec => dec.passed && dec.signal).map(dec => dec.signal);
+        setSignals(prev => [...sigs, ...prev].slice(0, 20));
+      }
+    } catch (e) {
+      addLog(`Scan failed: ${e.message}`, "error");
+    }
+    setScanLoading(false);
+  };
+
+  const killEngine = async () => {
+    setKillLoading(true);
+    try {
+      await fetch(`${API}/api/signals/engine/kill`, { method: "POST" });
+      addLog("🛑 KILL SWITCH ACTIVATED — all trading halted", "error");
+    } catch {}
+    setKillLoading(false);
+  };
+
+  const resumeEngine = async () => {
+    try {
+      await fetch(`${API}/api/signals/engine/resume`, { method: "POST" });
+      addLog("▶ Engine resumed", "success");
+    } catch {}
+  };
+
+  const runBacktest = async () => {
+    addLog(`Running backtest on ${pair} H1…`, "info");
+    try {
+      const r = await fetch(`${API}/api/signals/backtest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pair, timeframe: "1h", bars: 1000, risk_percent: 2, account_balance: 10000 }),
+      });
+      const d = await r.json();
+      setBacktest(d.result);
+      if (d.result?.equity_curve) {
+        setEquityCurve(d.result.equity_curve.map((p, i) => ({ i, equity: p.equity })));
+      }
+      addLog(`Backtest done — ${d.result?.verdict}`, "success");
+    } catch (e) {
+      addLog(`Backtest failed: ${e.message}`, "error");
+    }
+  };
+
+  const runMonteCarlo = async () => {
+    if (!backtest) return;
+    setMcLoading(true);
+    addLog("Running Monte Carlo simulation (1000 iterations)…", "info");
+    try {
+      const r = await fetch(`${API}/api/signals/monte-carlo?simulations=1000&account_balance=10000`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(backtest),
+      });
+      const d = await r.json();
+      setMcResult(d.result);
+      addLog(`Monte Carlo — Edge confidence: ${d.result?.edge_confidence_pct?.toFixed(1)}%`, "success");
+    } catch (e) {
+      addLog(`Monte Carlo failed: ${e.message}`, "error");
+    }
+    setMcLoading(false);
+  };
+
+  const cbStats = engineStatus?.circuit_breaker;
+
+  // ── Tab bar ────────────────────────────────────────────────
+  const tabs = ["signals", "backtest", "risk", "log"];
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'DM Sans', 'Segoe UI', sans-serif", padding: "0 0 40px" }}>
+
+      {/* ── Top bar ───────────────────────────────────────── */}
+      <div style={{
+        background: C.panel,
+        borderBottom: `1px solid ${C.border}`,
+        padding: "14px 28px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        position: "sticky",
+        top: 0,
+        zIndex: 100,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: `linear-gradient(135deg, ${C.accent}, ${C.buy})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
+            📈
+          </div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: -0.5 }}>PriceIQ Pro</div>
+            <div style={{ fontSize: 10, color: C.dim }}>M.A.E. Trading Engine v2.2</div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Pair selector */}
+          <select
+            value={pair}
+            onChange={e => setPair(e.target.value)}
+            style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 6, padding: "5px 10px", fontSize: 13 }}
+          >
+            {["EURUSD","GBPUSD","USDJPY","XAUUSD","AUDUSD","GBPJPY","USDCAD"].map(p => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+
+          {/* WS status */}
+          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: { connected: C.buy, disconnected: C.sell, connecting: C.warn, error: C.sell }[wsStatus] }} />
+            <span style={{ color: C.dim }}>{wsStatus}</span>
+          </div>
+
+          {/* Scan */}
+          <button
+            onClick={triggerScan}
+            disabled={scanLoading}
+            style={{ background: C.accent, color: "#000", border: "none", borderRadius: 7, padding: "7px 14px", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: scanLoading ? 0.6 : 1 }}
+          >
+            {scanLoading ? "Scanning…" : "⚡ Scan Now"}
+          </button>
+
+          {/* Kill switch */}
+          <button
+            onClick={killEngine}
+            disabled={killLoading}
+            style={{ background: C.sell, color: "#fff", border: "none", borderRadius: 7, padding: "7px 14px", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+          >
+            🛑 Kill
+          </button>
+          <button
+            onClick={resumeEngine}
+            style={{ background: C.buy, color: "#000", border: "none", borderRadius: 7, padding: "7px 14px", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+          >
+            ▶ Resume
+          </button>
+        </div>
+      </div>
+
+      {/* ── Status row ───────────────────────────────────── */}
+      <div style={{ padding: "16px 28px 0", display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+        {[
+          ["Balance", cash(cbStats?.current_balance), C.accent],
+          ["Peak", cash(cbStats?.peak_balance), C.buy],
+          ["Drawdown", `${cbStats?.current_drawdown_pct?.toFixed(1) || "0.0"}%`, (cbStats?.current_drawdown_pct || 0) > 10 ? C.sell : C.buy],
+          ["Engine", cbStats?.state || "—", cbStats?.state === "active" ? C.buy : C.sell],
+          ["DB", health?.database ? "✓ Connected" : "✗ Offline", health?.database ? C.buy : C.sell],
+        ].map(([l, v, c]) => (
+          <Card key={l} style={{ padding: "12px 16px" }}>
+            <Stat label={l} value={v} color={c} />
+          </Card>
+        ))}
+      </div>
+
+      {/* ── Session + News row ───────────────────────────── */}
+      <div style={{ padding: "12px 28px 0", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Card title="Session Status" accent={sessionInfo?.is_allowed ? C.buy : C.sell}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ fontSize: 22 }}>{sessionInfo?.is_allowed ? "✅" : "🔴"}</div>
+            <div>
+              <div style={{ fontWeight: 700, color: sessionInfo?.is_allowed ? C.buy : C.sell }}>
+                {sessionInfo?.current_session?.replace(/_/g, " ").toUpperCase() || "—"}
+              </div>
+              <div style={{ fontSize: 11, color: C.dim }}>{sessionInfo?.reason || `Quality: ${((sessionInfo?.session_quality || 0) * 100).toFixed(0)}%`}</div>
+            </div>
+          </div>
+        </Card>
+
+        <Card title="News Filter" accent={newsInfo?.is_currently_blocked ? C.sell : C.buy}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ fontSize: 22 }}>{newsInfo?.is_currently_blocked ? "⚠️" : "✅"}</div>
+            <div>
+              <div style={{ fontWeight: 700, color: newsInfo?.is_currently_blocked ? C.sell : C.buy }}>
+                {newsInfo?.is_currently_blocked ? "BLOCKED" : "CLEAR"}
+              </div>
+              <div style={{ fontSize: 11, color: C.dim }}>
+                {newsInfo?.block_reason || `${newsInfo?.event_count || 0} events in next 12h`}
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* ── Tab bar ──────────────────────────────────────── */}
+      <div style={{ padding: "16px 28px 0", display: "flex", gap: 4, borderBottom: `1px solid ${C.border}`, marginBottom: 0 }}>
+        {tabs.map(t => (
+          <button
+            key={t}
+            onClick={() => setActiveTab(t)}
+            style={{
+              background: activeTab === t ? C.accent : "transparent",
+              color: activeTab === t ? "#000" : C.dim,
+              border: "none",
+              borderRadius: "7px 7px 0 0",
+              padding: "8px 18px",
+              fontWeight: 700,
+              fontSize: 12,
+              cursor: "pointer",
+              textTransform: "capitalize",
+              letterSpacing: 0.5,
+            }}
+          >
+            {t === "signals" ? "📡 Signals" : t === "backtest" ? "📊 Backtest" : t === "risk" ? "🛡 Risk" : "📋 Log"}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Main content ─────────────────────────────────── */}
+      <div style={{ padding: "20px 28px" }}>
+
+        {/* SIGNALS TAB */}
+        {activeTab === "signals" && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 12, color: C.dim, marginBottom: 12 }}>
+                {signals.length === 0 ? "No signals yet — run a scan or wait for the hourly schedule." : `${signals.length} signal(s)`}
+              </div>
+              {signals.map((s, i) => (
+                <SignalCard key={i} signal={s} />
+              ))}
+              {signals.length === 0 && (
+                <div style={{ textAlign: "center", padding: 40, color: C.muted, border: `1px dashed ${C.border}`, borderRadius: 12 }}>
+                  <div style={{ fontSize: 32, marginBottom: 10 }}>📡</div>
+                  <div>Click <strong>⚡ Scan Now</strong> or wait for the hourly scan at :01 past each hour</div>
+                </div>
+              )}
+            </div>
+
+            {/* Sidebar */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Card title="Circuit Breaker">
+                <CircuitBreakerPanel stats={cbStats} />
+              </Card>
+
+              <Card title="Open Positions">
+                <div style={{ fontSize: 12, color: C.dim }}>
+                  {engineStatus?.open_positions ? (
+                    <div>
+                      <div>{engineStatus.open_positions} position(s) open</div>
+                      <div style={{ marginTop: 6 }}>Total risk: {cash(engineStatus.total_risk_amount)}</div>
+                    </div>
+                  ) : (
+                    <div style={{ color: C.muted }}>No open positions</div>
+                  )}
+                </div>
+              </Card>
+
+              <Card title="Net Exposure">
+                {engineStatus?.net_exposure && Object.entries(engineStatus.net_exposure).map(([ccy, lots]) => (
+                  <div key={ccy} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
+                    <span style={{ color: C.dim }}>{ccy}</span>
+                    <span style={{ color: lots > 0 ? C.buy : lots < 0 ? C.sell : C.text, fontFamily: "monospace" }}>
+                      {lots > 0 ? "+" : ""}{lots?.toFixed(2)} lots
+                    </span>
+                  </div>
+                ))}
+                {!engineStatus?.net_exposure && <div style={{ color: C.muted, fontSize: 12 }}>No exposure</div>}
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {/* BACKTEST TAB */}
+        {activeTab === "backtest" && (
+          <div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+              <button onClick={runBacktest} style={{ background: C.accent, color: "#000", border: "none", borderRadius: 7, padding: "8px 18px", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                ▶ Run Backtest ({pair})
+              </button>
+              <button onClick={runMonteCarlo} disabled={!backtest || mcLoading} style={{ background: C.buy, color: "#000", border: "none", borderRadius: 7, padding: "8px 18px", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: !backtest || mcLoading ? 0.5 : 1 }}>
+                {mcLoading ? "Running…" : "🎲 Monte Carlo"}
+              </button>
+            </div>
+
+            {backtest && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                <Card title="Performance" accent={verdictColor(backtest.verdict_color)}>
+                  <div style={{ marginBottom: 12, padding: "8px 12px", background: `${verdictColor(backtest.verdict_color)}22`, borderRadius: 6, color: verdictColor(backtest.verdict_color), fontWeight: 700, fontSize: 13 }}>
+                    {backtest.verdict}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    {[
+                      ["Trades", backtest.metrics?.total_trades],
+                      ["Win Rate", pct(backtest.metrics?.win_rate)],
+                      ["Profit Factor", backtest.metrics?.profit_factor?.toFixed(2)],
+                      ["Sharpe", backtest.metrics?.sharpe_ratio?.toFixed(2)],
+                      ["Max DD", `${backtest.metrics?.max_drawdown_percent?.toFixed(1)}%`],
+                      ["Return", `${backtest.metrics?.total_return_percent > 0 ? "+" : ""}${backtest.metrics?.total_return_percent?.toFixed(1)}%`],
+                    ].map(([l, v]) => (
+                      <div key={l} style={{ background: C.bg, borderRadius: 7, padding: "8px 10px" }}>
+                        <div style={{ fontSize: 10, color: C.dim }}>{l}</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "monospace" }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+
+                <Card title="Equity Curve">
+                  {equityCurve.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <AreaChart data={equityCurve}>
+                        <defs>
+                          <linearGradient id="eq" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={C.buy} stopOpacity={0.3} />
+                            <stop offset="95%" stopColor={C.buy} stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <XAxis dataKey="i" hide />
+                        <YAxis domain={["auto", "auto"]} hide />
+                        <Tooltip formatter={(v) => [`$${v.toFixed(0)}`, "Balance"]} contentStyle={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 11 }} />
+                        <Area type="monotone" dataKey="equity" stroke={C.buy} strokeWidth={2} fill="url(#eq)" dot={false} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : <div style={{ color: C.muted, textAlign: "center", padding: 40 }}>Run a backtest first</div>}
+                </Card>
+
+                {mcResult && (
+                  <Card title="Monte Carlo Results" accent={mcResult.is_edge_real ? C.buy : C.sell} style={{ gridColumn: "1 / -1" }}>
+                    <div style={{ marginBottom: 12, color: mcResult.is_edge_real ? C.buy : C.sell, fontWeight: 700 }}>
+                      {mcResult.verdict}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+                      {[
+                        ["Edge Confidence", `${mcResult.edge_confidence_pct?.toFixed(1)}%`, mcResult.edge_confidence_pct >= 60 ? C.buy : C.sell],
+                        ["Ruin Probability", `${mcResult.ruin_probability_pct?.toFixed(1)}%`, mcResult.ruin_probability_pct < 5 ? C.buy : C.sell],
+                        ["Worst DD (95th)", `${mcResult.worst_case_dd_pct?.toFixed(1)}%`, mcResult.worst_case_dd_pct < 20 ? C.buy : C.warn],
+                        ["Median Return", `${mcResult.median_return_pct > 0 ? "+" : ""}${mcResult.median_return_pct?.toFixed(1)}%`, mcResult.median_return_pct > 0 ? C.buy : C.sell],
+                      ].map(([l, v, c]) => (
+                        <div key={l} style={{ background: C.bg, borderRadius: 7, padding: "10px 12px" }}>
+                          <div style={{ fontSize: 10, color: C.dim, marginBottom: 3 }}>{l}</div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: c, fontFamily: "monospace" }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {mcResult.return_distribution?.length > 0 && (
+                      <div style={{ marginTop: 16 }}>
+                        <div style={{ fontSize: 10, color: C.dim, marginBottom: 8 }}>Return Distribution ({mcResult.simulations} simulations)</div>
+                        <ResponsiveContainer width="100%" height={120}>
+                          <BarChart data={mcResult.return_distribution.map((v, i) => ({ i, v }))}>
+                            <XAxis dataKey="i" hide />
+                            <YAxis hide />
+                            <Tooltip formatter={(v) => [`${v > 0 ? "+" : ""}${v?.toFixed(1)}%`, "Return"]} contentStyle={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 11 }} />
+                            <Bar dataKey="v" radius={1}>
+                              {mcResult.return_distribution.map((v, i) => (
+                                <Cell key={i} fill={v > 0 ? C.buy : C.sell} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </Card>
+                )}
+              </div>
+            )}
+
+            {!backtest && (
+              <div style={{ textAlign: "center", padding: 60, color: C.muted, border: `1px dashed ${C.border}`, borderRadius: 12 }}>
+                <div style={{ fontSize: 32, marginBottom: 10 }}>📊</div>
+                <div>Select a pair above and click <strong>▶ Run Backtest</strong></div>
+                <div style={{ fontSize: 12, marginTop: 6 }}>Includes spread + slippage modelling</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* RISK TAB */}
+        {activeTab === "risk" && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <Card title="Circuit Breaker Status" accent={cbStats?.state === "active" ? C.buy : C.sell}>
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: cbStats?.state === "active" ? C.buy : C.sell }}>
+                  {cbStats?.state?.toUpperCase().replace(/_/g, " ") || "UNKNOWN"}
+                </div>
+              </div>
+              <CircuitBreakerPanel stats={cbStats} />
+              <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11 }}>
+                {[
+                  ["Daily Limit", `${cbStats?.daily_loss_limit_pct}%`],
+                  ["Weekly Limit", `${cbStats?.weekly_loss_limit_pct}%`],
+                  ["Max DD Limit", `${cbStats?.max_drawdown_limit_pct}%`],
+                  ["Consec. Limit", cbStats?.max_consecutive_limit],
+                ].map(([l, v]) => (
+                  <div key={l} style={{ color: C.dim }}>
+                    {l}: <span style={{ color: C.text }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <Card title="Kill Switch">
+              <div style={{ fontSize: 13, color: C.dim, marginBottom: 16, lineHeight: 1.7 }}>
+                Emergency stop halts all signal generation and order execution immediately.
+                Use if you see unexpected behaviour or runaway losses.
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={killEngine} style={{ flex: 1, background: C.sell, color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
+                  🛑 KILL ALL TRADING
+                </button>
+                <button onClick={resumeEngine} style={{ flex: 1, background: C.buy, color: "#000", border: "none", borderRadius: 8, padding: "12px", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
+                  ▶ RESUME
+                </button>
+              </div>
+            </Card>
+
+            <Card title="Scheduler Status" style={{ gridColumn: "1 / -1" }}>
+              <div style={{ fontSize: 12, color: C.dim, marginBottom: 8 }}>
+                Scheduler runs automatically: hourly H1 scan at :01, 4H scans at 0/4/8/12/16/20 UTC, daily digest at 08:00 UTC.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                {["hourly_scan", "4h_scan", "daily_digest"].map(job => (
+                  <div key={job} style={{ background: C.bg, borderRadius: 7, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 10, color: C.dim }}>{job.replace(/_/g, " ").toUpperCase()}</div>
+                    <div style={{ fontSize: 12, color: C.buy, marginTop: 3 }}>● Active</div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* LOG TAB */}
+        {activeTab === "log" && (
+          <Card title="Live Event Log" style={{ fontFamily: "monospace" }}>
+            <div ref={logRef} style={{ maxHeight: 500, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+              {liveLog.length === 0 && <div style={{ color: C.muted, fontSize: 12, padding: 20, textAlign: "center" }}>Waiting for events…</div>}
+              {liveLog.map((entry, i) => (
+                <div key={i} style={{
+                  fontSize: 12,
+                  padding: "5px 8px",
+                  borderRadius: 4,
+                  background: i === 0 ? `${C.accent}11` : "transparent",
+                  color: { signal: C.accent, success: C.buy, error: C.sell, warn: C.warn, info: C.dim }[entry.type] || C.dim,
+                  display: "flex",
+                  gap: 10,
+                }}>
+                  <span style={{ color: C.muted, flexShrink: 0 }}>{entry.time}</span>
+                  <span>{entry.msg}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
