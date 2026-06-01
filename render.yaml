@@ -1,6 +1,3 @@
-# render.yaml — PriceIQ Pro
-# Matches project structure: main.py at root, app/ folder, schema.sql
-
 services:
   - type: web
     name: priceiq-pro
@@ -10,13 +7,13 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
     healthCheckPath: /health
-
+    
     envVars:
       - key: ENVIRONMENT
         value: production
       - key: LOG_LEVEL
         value: info
-      - key: TWELVE_DATA_API_KEY
-        sync: false        # Set manually in Render dashboard
-      - key: DATABASE_URL
-        sync: false        # Set manually in Render dashboard if using a DB
+      - key: OANDA_PAPER_TRADING
+        value: "true"
+      - key: AUTO_EXECUTE_TRADES
+        value: "false"
