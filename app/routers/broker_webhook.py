@@ -67,6 +67,59 @@ async def handle_trade_open(event: TradeOpenEvent, background_tasks: BackgroundT
     return {"status": "received", "pair": event.pair}
 
 
+
+@router.post("/test-alert")
+async def send_test_alert(background_tasks: BackgroundTasks):
+    """Send a test alert to verify email and telegram are working."""
+    from app.services.alerts import AlertManager
+    from app.core.config import settings
+    
+    alert_manager = AlertManager()
+    
+    # Create a test message
+    test_message = f"""
+🧪 <b>PriceIQ Pro Test Alert</b> 🧪
+
+This is a test message to verify your alert system is working.
+
+✅ Email: {'ENABLED' if settings.ALERT_EMAIL else 'DISABLED'}
+✅ Telegram: {'ENABLED' if settings.TELEGRAM_BOT_TOKEN else 'DISABLED'}
+
+Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+
+If you received this, your PriceIQ Pro alert system is configured correctly!
+"""
+    
+    recipients = [settings.ALERT_EMAIL] if settings.ALERT_EMAIL else []
+    alert_methods = []
+    
+    if settings.ALERT_EMAIL:
+        alert_methods.append("email")
+    if settings.TELEGRAM_BOT_TOKEN:
+        alert_methods.append("telegram")
+    
+    if not alert_methods:
+        return {
+            "status": "error",
+            "message": "No alert methods configured. Set ALERT_EMAIL or TELEGRAM_BOT_TOKEN"
+        }
+    
+    # Send in background
+    background_tasks.add_task(
+        alert_manager.send_signal_alert,
+        None,  # No signal, just test
+        recipients,
+        alert_methods
+    )
+    
+    return {
+        "status": "sent",
+        "methods": alert_methods,
+        "message": f"Test alert sent to {', '.join(alert_methods)}",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
 @router.post("/oanda/transactions")
 async def handle_oanda_transaction(request: Request, background_tasks: BackgroundTasks):
     """Receive OANDA transaction webhook."""
