@@ -19,8 +19,10 @@ class Settings(BaseSettings):
     JWT_SECRET: str = os.getenv("JWT_SECRET", "change_this_in_production")
 
     # Database
-    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+	SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
+	SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
 
     # Data Sources
     ALPHA_VANTAGE_API_KEY: str = os.getenv("ALPHA_VANTAGE_API_KEY", "")
