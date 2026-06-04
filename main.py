@@ -1,7 +1,7 @@
 """
 PriceIQ Pro v3.3 — Main Application Entry Point
 """
-
+from app.services.supabase_client import supabase
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
