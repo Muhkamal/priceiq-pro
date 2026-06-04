@@ -4,9 +4,8 @@ services:
     runtime: python
     region: frankfurt
     plan: free
-    buildCommand: |
-      pip install --upgrade pip setuptools wheel
-      pip install -r requirements.txt
+    pythonVersion: "3.11.9"
+    buildCommand: pip install --upgrade pip setuptools wheel && pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
     healthCheckPath: /health
     
@@ -19,3 +18,8 @@ services:
         value: "true"
       - key: AUTO_EXECUTE_TRADES
         value: "false"
+      -	key: TWELVE_DATA_API_KEY
+      	sync: false
+      -	key: DATABASE_URL
+      	sync: false
+      	
