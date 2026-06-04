@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
+from datetime import datetime
 
 from app.core.config import settings
 from app.services.database import db
@@ -123,11 +124,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-@app.get("/health")
+@app.get("/health", include_in_schema=False)
+@app.head("/health", include_in_schema=False)
 async def health():
     from datetime import datetime
     return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
-
 # ========== REGISTER ROUTERS ==========
 
 # Core routers
