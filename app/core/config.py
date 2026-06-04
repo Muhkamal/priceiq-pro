@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     # Database
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
-	SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
-	SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
+    SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
+    SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
 
     # Data Sources
     ALPHA_VANTAGE_API_KEY: str = os.getenv("ALPHA_VANTAGE_API_KEY", "")
@@ -70,28 +70,28 @@ class Settings(BaseSettings):
     MAX_POSITION_LOTS: float = 10.0
 
     # Pattern Validation (v3.2)
-    MIN_SHADOW_RATIO: float = 2.0      # Hammer/Shooting star shadow must be >= 2x body
-    MIN_ENGULFING_RATIO: float = 1.5   # Engulfing candle must be >= 1.5x previous body
-    DOJI_BODY_PCT: float = 0.05        # Doji body must be <= 5% of range
+    MIN_SHADOW_RATIO: float = 2.0
+    MIN_ENGULFING_RATIO: float = 1.5
+    DOJI_BODY_PCT: float = 0.05
 
     # ATR-Based Stops (v3.2)
-    ATR_STOP_MULTIPLIER: float = 1.5   # Stop = ATR * 1.5
-    ATR_TP_MULTIPLIER: float = 3.0     # TP = ATR * 3.0 (2:1 R:R)
+    ATR_STOP_MULTIPLIER: float = 1.5
+    ATR_TP_MULTIPLIER: float = 3.0
 
     # Spread / Entry (v3.2)
-    APPLY_SPREAD_TO_ENTRY: bool = True  # Adjust entry price for spread
+    APPLY_SPREAD_TO_ENTRY: bool = True
 
     # Session Filter (v3.2)
     SESSION_FILTER_ENABLED: bool = True
-    MIN_SESSION_QUALITY: float = 0.6    # Minimum session quality to trade
+    MIN_SESSION_QUALITY: float = 0.6
 
     # Support/Resistance (v3.2)
-    SR_CLUSTER_GAP_PCT: float = 0.002   # 0.2% gap to form new S/R cluster
-    SR_MAX_LEVELS: int = 10             # Max S/R levels to return
-    SR_LOOKBACK_CANDLES: int = 200      # Candles to analyze for S/R
+    SR_CLUSTER_GAP_PCT: float = 0.002
+    SR_MAX_LEVELS: int = 10
+    SR_LOOKBACK_CANDLES: int = 200
 
     # Multi-Candle Patterns (v3.2)
-    MORNING_STAR_GAP_PCT: float = 0.001 # 0.1% gap tolerance for star patterns
+    MORNING_STAR_GAP_PCT: float = 0.001
 
     # Legacy / Unused (kept for backward compatibility)
     MIN_RISK_REWARD: float = 1.5
