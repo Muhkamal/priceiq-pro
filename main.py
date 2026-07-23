@@ -1,5 +1,6 @@
 """
-PriceIQ Pro V5 — Main Entry Point
+PriceIQ Pro V5 — Professional Entry Point
+Runs the REAL V5 orchestrator, not dummy data.
 """
 
 import sys
@@ -8,66 +9,43 @@ import logging
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-# Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# ============ V5 IMPORTS ============
+# ============ REAL V5 IMPORTS ============
 try:
     from app.services.v5_orchestrator_final import init_v5, get_v5
-    logger.info("✅ V5 orchestrator imported")
-except ImportError as e:
-    logger.warning(f"⚠️ V5 orchestrator import error: {e}")
-    init_v5 = None
-    get_v5 = None
-
-try:
-    from app.services.advanced_integration import attach_advanced_capabilities
-    logger.info("✅ Advanced integration imported")
-except ImportError as e:
-    logger.warning(f"⚠️ Advanced integration error: {e}")
-    attach_advanced_capabilities = None
-
-try:
     from app.services.core.v5_settings import v5_settings
-    logger.info("✅ V5 settings imported")
+    from app.services.advanced_integration import attach_advanced_capabilities
+    logger.info("✅ V5 modules loaded")
+    V5_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"⚠️ V5 settings error: {e}")
-    v5_settings = None
+    logger.error(f"❌ V5 import failed: {e}")
+    V5_AVAILABLE = False
 
-try:
-    from app.services.core.preflight import PreflightValidator
-    logger.info("✅ Preflight imported")
-except ImportError as e:
-    logger.warning(f"⚠️ Preflight error: {e}")
-    PreflightValidator = None
+# ============ EXISTING ROUTERS ============
+from app.routers import signals, signals_v32, system, session, circuit_breaker, auth, database
+from app.routers import price_validator, multi_timeframe, correlation, trade_engine as trade_engine_router
+from app.routers import patterns, monte_carlo, scheduler as scheduler_router
 
-# ============ EXISTING IMPORTS ============
-try:
-    from app.routers import signals, signals_v32, system, session, circuit_breaker, auth, database
-    ROUTERS_AVAILABLE = True
-except ImportError as e:
-    logger.warning(f"⚠️ Some routers not available: {e}")
-    ROUTERS_AVAILABLE = False
-
-# ============ LIFESPAN ============
+# ============ LIFESPAN - REAL V5 STARTS HERE ============
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("=" * 60)
-    logger.info("🚀 Starting PriceIQ Pro V5")
+    logger.info("🚀 Starting PriceIQ Pro V5 - PROFESSIONAL MODE")
     logger.info("=" * 60)
 
-    # Initialize V5 if available
-    if init_v5 and v5_settings:
+    v5 = None
+    
+    if V5_AVAILABLE:
         try:
+            logger.info("Initializing REAL V5 orchestrator...")
+            
             v5 = init_v5(
                 starting_balance=v5_settings.ACCOUNT_BALANCE,
                 risk_pct=v5_settings.RISK_PERCENT,
@@ -80,88 +58,75 @@ async def lifespan(app: FastAPI):
                 transition_path=v5_settings.TRANSITION_PATH,
                 journal_path=v5_settings.JOURNAL_PATH,
                 telegram=None,
+                fred_api_key=os.environ.get("FRED_API_KEY", ""),
+                alpha_vantage_key=os.environ.get("ALPHA_VANTAGE_KEY", ""),
+                finnhub_key=os.environ.get("FINNHUB_KEY", ""),
             )
-            logger.info("✅ V5 orchestrator initialized")
+            
+            logger.info("✅ REAL V5 orchestrator initialized successfully")
+            
+            # Attach advanced capabilities
+            if attach_advanced_capabilities:
+                try:
+                    attach_advanced_capabilities(v5, watchlist=v5_settings.WATCHLIST)
+                    logger.info("✅ Advanced capabilities attached")
+                except Exception as e:
+                    logger.warning(f"⚠️ Advanced capabilities: {e}")
+                    
         except Exception as e:
-            logger.error(f"❌ V5 init failed: {e}")
+            logger.error(f"❌ V5 init FAILED: {e}")
+            import traceback
+            traceback.print_exc()
+    else:
+        logger.error("❌ V5 not available - check imports")
 
     logger.info("=" * 60)
-    logger.info("✅ PriceIQ Pro V5 is running!")
+    logger.info(f"✅ PriceIQ Pro V5 - {'V5 ACTIVE' if v5 else 'MINIMAL MODE'}")
     logger.info("=" * 60)
 
     yield
 
-    logger.info("🛑 Shutting down PriceIQ Pro V5...")
+    logger.info("🛑 Shutting down...")
+    if v5 and hasattr(v5, 'shutdown'):
+        await v5.shutdown()
 
 # ============ CREATE APP ============
-app = FastAPI(
-    title="PriceIQ Pro V5",
-    description="Autonomous AI Forex Trading System",
-    version="5.0.0",
-    lifespan=lifespan
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="PriceIQ Pro V5", version="5.0.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # ============ ROUTES ============
 @app.get("/")
 async def root():
-    return {
-        "app": "PriceIQ Pro V5",
-        "version": "5.0.0",
-        "status": "running",
-        "docs": "/docs"
-    }
+    v5 = get_v5() if get_v5 else None
+    return {"app": "PriceIQ Pro V5", "version": "5.0.0", "status": "running", "v5_active": v5 is not None}
 
 @app.get("/health")
 async def health():
-    return {
-        "status": "healthy",
-        "version": "5.0.0",
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 # ============ MOUNT ROUTERS ============
-if ROUTERS_AVAILABLE:
-    try:
-        from app.routers import signals, signals_v32, system
-        app.include_router(signals.router)
-        app.include_router(signals_v32.router)
-        app.include_router(system.router)
-        logger.info("✅ Core routers mounted")
-    except Exception as e:
-        logger.warning(f"⚠️ Core routers failed: {e}")
+app.include_router(signals.router)
+app.include_router(signals_v32.router)
+app.include_router(system.router)
+app.include_router(session.router)
+app.include_router(price_validator.router)
+app.include_router(multi_timeframe.router)
+app.include_router(circuit_breaker.router)
+app.include_router(correlation.router)
+app.include_router(trade_engine_router.router)
+app.include_router(patterns.router)
+app.include_router(auth.router)
+app.include_router(database.router)
+app.include_router(monte_carlo.router)
+app.include_router(scheduler_router.router)
 
-    try:
-        from app.routers import session, circuit_breaker, auth, database
-        app.include_router(session.router)
-        app.include_router(circuit_breaker.router)
-        app.include_router(auth.router)
-        app.include_router(database.router)
-        logger.info("✅ Feature routers mounted")
-    except Exception as e:
-        logger.warning(f"⚠️ Feature routers failed: {e}")
-
-# ============ V5 ROUTERS ============
+# V5 Router - REAL (not dummy)
 try:
     from app.services.api.v5_dashboard_api import v5_router
     app.include_router(v5_router)
-    logger.info("✅ V5 dashboard mounted")
+    logger.info("✅ V5 API router mounted")
 except ImportError as e:
-    logger.warning(f"⚠️ V5 dashboard not available: {e}")
-
-try:
-    from app.services.api.broker_webhook_v5 import broker_webhook_router
-    app.include_router(broker_webhook_router)
-    logger.info("✅ V5 webhook mounted")
-except ImportError as e:
-    logger.warning(f"⚠️ V5 webhook not available: {e}")
+    logger.warning(f"⚠️ V5 API router not found: {e}")
 
 if __name__ == "__main__":
     import uvicorn
