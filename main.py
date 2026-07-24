@@ -19,26 +19,55 @@ logger = logging.getLogger(__name__)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# ============================================================
+# SAFE OPTIONAL IMPORTS (🔥 prevents crashes)
+# ============================================================
+
+# sklearn-safe (prevents crash if not installed)
+try:
+    from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+except Exception as e:
+    logger.warning(f"⚠️ sklearn not installed: {e}")
+
+# advanced analyzer safe import
+try:
+    from app.services.market_analyzer_advanced import MAETradingFormula
+except Exception as e:
+    logger.warning(f"⚠️ Advanced analyzer missing: {e}")
+    MAETradingFormula = None
+
 
 # ============ BACKGROUND TRADING LOOP ============
 async def trading_loop():
-    from app.services.v5_orchestrator_final import get_v5
+    try:
+        from app.services.v5_orchestrator_final import get_v5
+    except Exception as e:
+        logger.error(f"❌ Cannot import V5: {e}")
+        return
 
     while True:
         try:
             v5 = get_v5()
 
             if v5:
+                result = None
+
+                # Try both possible execution methods safely
                 try:
                     result = v5.run_cycle()
-                    if asyncio.iscoroutine(result):
-                        await result
-                    logger.info(f"🔥 LOOP RESULT: {result}")
-                except Exception as e:
-                    logger.error(f"❌ Trading loop error: {e}")
+                except Exception:
+                    try:
+                        result = v5.scan_market()
+                    except Exception as e:
+                        logger.error(f"❌ No valid execution method: {e}")
+
+                if asyncio.iscoroutine(result):
+                    await result
+
+                logger.info("🔥 LOOP RUNNING — market scan executed")
 
         except Exception as e:
-            logger.error(f"❌ Loop outer error: {e}")
+            logger.error(f"❌ Trading loop error: {e}")
 
         await asyncio.sleep(60)
 
@@ -50,38 +79,30 @@ async def lifespan(app: FastAPI):
     logger.info("PriceIQ Pro V5 Starting...")
     logger.info("=" * 60)
 
-    # 🔥 DEBUGGED V5 INIT BLOCK (THIS IS THE FIX)
     try:
         from app.services.v5_orchestrator_final import init_v5
         from app.services.core.v5_settings import v5_settings
 
-        try:
-            v5 = init_v5(
-                starting_balance=v5_settings.ACCOUNT_BALANCE,
-                risk_pct=v5_settings.RISK_PERCENT,
-                target_vol_pct=v5_settings.TARGET_VOL_PCT,
-                max_drawdown=v5_settings.MAX_DRAWDOWN_PCT,
-                regime_model_path=v5_settings.REGIME_MODEL_PATH,
-                learning_state_path=v5_settings.LEARNING_STATE_PATH,
-                regime_weights_path=v5_settings.REGIME_WEIGHTS_PATH,
-                win_prob_path=v5_settings.WIN_PROB_PATH,
-                transition_path=v5_settings.TRANSITION_PATH,
-                journal_path=v5_settings.JOURNAL_PATH,
-                telegram=None,
-            )
-            logger.info("✅ V5 Orchestrator initialized OK")
-
-        except Exception:
-            import traceback
-            logger.error("🚨 V5 INIT CRASHED INSIDE init_v5()")
-            traceback.print_exc()
-
-    except Exception:
+        v5 = init_v5(
+            starting_balance=v5_settings.ACCOUNT_BALANCE,
+            risk_pct=v5_settings.RISK_PERCENT,
+            target_vol_pct=v5_settings.TARGET_VOL_PCT,
+            max_drawdown=v5_settings.MAX_DRAWDOWN_PCT,
+            regime_model_path=v5_settings.REGIME_MODEL_PATH,
+            learning_state_path=v5_settings.LEARNING_STATE_PATH,
+            regime_weights_path=v5_settings.REGIME_WEIGHTS_PATH,
+            win_prob_path=v5_settings.WIN_PROB_PATH,
+            transition_path=v5_settings.TRANSITION_PATH,
+            journal_path=v5_settings.JOURNAL_PATH,
+            telegram=None,
+        )
+        logger.info("V5 Orchestrator initialized OK")
+    except Exception as e:
         import traceback
-        logger.error("🚨 V5 IMPORT FAILED")
+        logger.error(f"V5 init failed: {e}")
         traceback.print_exc()
 
-    # ============ ROUTERS ============
+    # Mount routers
     try:
         from app.services.api.v5_dashboard_api import v5_router
         app.include_router(v5_router)
@@ -103,7 +124,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Broker webhook V5: {e}")
 
-    # 🔥 START LOOP
+    # 🔥 START BACKGROUND LOOP (RENDER-SAFE)
     try:
         loop = asyncio.get_event_loop()
         loop.create_task(trading_loop())
@@ -119,6 +140,7 @@ async def lifespan(app: FastAPI):
 # ============ CREATE APP ============
 app = FastAPI(
     title="PriceIQ Pro V5",
+    description="Autonomous AI Forex Trading System",
     version="5.0.0",
     lifespan=lifespan,
 )
@@ -131,13 +153,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ============ FALLBACK ROUTERS ============
+# ============ ROUTERS ============
+try:
+    from app.routers import signals, signals_v32, system
+    app.include_router(signals.router)
+    app.include_router(signals_v32.router)
+    app.include_router(system.router)
+    logger.info("Core routers mounted")
+except Exception as e:
+    logger.error(f"Core routers failed: {e}")
+
+try:
+    from app.routers import session, circuit_breaker, correlation
+    from app.routers import price_validator, multi_timeframe, patterns
+    app.include_router(session.router)
+    app.include_router(circuit_breaker.router)
+    app.include_router(correlation.router)
+    app.include_router(price_validator.router)
+    app.include_router(multi_timeframe.router)
+    app.include_router(patterns.router)
+    logger.info("Feature routers mounted")
+except Exception as e:
+    logger.error(f"Feature routers failed: {e}")
+
+try:
+    from app.routers import auth, database, monte_carlo, scheduler
+    app.include_router(auth.router)
+    app.include_router(database.router)
+    app.include_router(monte_carlo.router)
+    app.include_router(scheduler.router)
+    logger.info("Admin routers mounted")
+except Exception as e:
+    logger.error(f"Admin routers failed: {e}")
+
+try:
+    from app.routers import trade_engine
+    app.include_router(trade_engine.router)
+except Exception as e:
+    logger.warning(f"Trade engine router: {e}")
+
+try:
+    from app.routers import broker_webhook
+    app.include_router(broker_webhook.router)
+except Exception as e:
+    logger.warning(f"Broker webhook: {e}")
+
 try:
     from app.routers.v5 import router as v5_fallback
     app.include_router(v5_fallback)
-    logger.warning("⚠️ Using fallback V5 router (mock data)")
+    logger.info("V5 fallback router mounted")
 except Exception as e:
-    logger.warning(f"Fallback router failed: {e}")
+    logger.warning(f"V5 fallback: {e}")
 
 
 # ============ HEALTH ============
@@ -148,7 +214,6 @@ async def health():
         "version": "5.0.0",
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
-
 
 @app.get("/")
 async def root():
@@ -168,7 +233,6 @@ async def root():
     }
 
 
-# ============ RUN ============
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
