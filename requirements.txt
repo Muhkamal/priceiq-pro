@@ -25,4 +25,10 @@ websockets==12.0
 yfinance==0.2.38
 numpy==1.24.3
 pandas==2.0.3
-supabase>=2.0.0
+supabase>=2.24.0
+postgrest==2.24.0
+supabase-auth==2.24.0
+storage3==2.24.0
+supabase-functions==2.24.0
+realtime==2.24.0
+pip==24.0
