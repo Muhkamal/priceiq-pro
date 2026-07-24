@@ -52,14 +52,20 @@ async def trading_loop():
             if v5:
                 result = None
 
-                # ✅ SAFE execution
                 try:
-                    result = v5.run_cycle()
+                    # Try both possible method names safely
+                    if hasattr(v5, "run_cycle"):
+                        result = v5.run_cycle()
+                    elif hasattr(v5, "run_signal_cycle"):
+                        # You must pass candles later (for now skip safely)
+                        result = None
+                    else:
+                        logger.error("❌ No execution method found in V5")
+
                 except Exception as e:
-                    logger.error(f"❌ run_cycle failed: {e}")
+                    logger.error(f"❌ execution failed: {e}")
                     result = None
 
-                # ✅ Await if coroutine
                 if asyncio.iscoroutine(result):
                     await result
 
