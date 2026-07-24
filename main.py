@@ -28,17 +28,21 @@ async def trading_loop():
             v5 = get_v5()
 
             if v5:
-                if hasattr(v5, "run_cycle"):
+                result = None
+
+                # Try both possible execution methods safely
+                try:
                     result = v5.run_cycle()
-                    if asyncio.iscoroutine(result):
-                        await result
+                except Exception:
+                    try:
+                        result = v5.scan_market()
+                    except Exception as e:
+                        logger.error(f"❌ No valid execution method: {e}")
 
-                elif hasattr(v5, "scan_market"):
-                    result = v5.scan_market()
-                    if asyncio.iscoroutine(result):
-                        await result
+                if asyncio.iscoroutine(result):
+                    await result
 
-                logger.info("✅ Market scan executed")
+                logger.info("🔥 LOOP RUNNING — market scan executed")
 
         except Exception as e:
             logger.error(f"❌ Trading loop error: {e}")
@@ -98,8 +102,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Broker webhook V5: {e}")
 
-    # 🔥 START BACKGROUND LOOP
-    asyncio.create_task(trading_loop())
+    # 🔥 START BACKGROUND LOOP (RENDER-SAFE)
+    try:
+        loop = asyncio.get_event_loop()
+        loop.create_task(trading_loop())
+        logger.info("🔥 Trading loop started")
+    except Exception as e:
+        logger.error(f"❌ Failed to start trading loop: {e}")
 
     logger.info("PriceIQ Pro V5 — Fully operational")
     yield
