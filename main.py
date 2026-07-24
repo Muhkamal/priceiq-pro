@@ -56,10 +56,10 @@ async def trading_loop():
                 try:
                     result = v5.run_cycle()
                 except Exception:
-                    try:
-                        result = v5.scan_market()
+                   
                     except Exception as e:
-                        logger.error(f"❌ No valid execution method: {e}")
+                        logger.error(f"❌ run_cycle failed: {e}")
+                        result = None
 
                 if asyncio.iscoroutine(result):
                     await result
@@ -207,7 +207,9 @@ except Exception as e:
 
 
 # ============ HEALTH ============
-@app.get("/health")
+from datetime import datetime, timezone
+
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     return {
         "status": "healthy",
