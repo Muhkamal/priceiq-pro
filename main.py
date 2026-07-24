@@ -52,15 +52,14 @@ async def trading_loop():
             if v5:
                 result = None
 
-                # Try both possible execution methods safely
+                # ✅ SAFE execution
                 try:
                     result = v5.run_cycle()
-                except Exception:
-                   
-                    except Exception as e:
-                        logger.error(f"❌ run_cycle failed: {e}")
-                        result = None
+                except Exception as e:
+                    logger.error(f"❌ run_cycle failed: {e}")
+                    result = None
 
+                # ✅ Await if coroutine
                 if asyncio.iscoroutine(result):
                     await result
 
@@ -70,7 +69,6 @@ async def trading_loop():
             logger.error(f"❌ Trading loop error: {e}")
 
         await asyncio.sleep(60)
-
 
 # ============ LIFESPAN ============
 @asynccontextmanager
