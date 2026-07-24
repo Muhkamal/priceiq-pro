@@ -89,11 +89,11 @@ from .agents.signal_conflict_resolver  import SignalConflictResolver
 from .learning.learning_loop           import LearningLoop
 from .learning.regime_conditional_learner import RegimeConditionalLearner
 from .risk.risk_governor               import RiskGovernor, OpenPosition
-from .risk.dynamic_correlation         import DynamicCorrelationEstimator
+from .risk.hybrid_correlation          import HybridCorrelationEstimator as DynamicCorrelationEstimator
 from .risk.volatility_sizer            import VolatilityTargetedSizer
-from .risk.var_engine                  import VaREngine
+from .risk.var_engine_v2               import VaREngine
 from .core.economic_calendar           import EconomicCalendar
-from .core.trade_manager               import TradeManager
+from .core.trade_manager_v2               import TradeManager
 from .core.trade_journal               import TradeJournal, JournalEntry
 from .core.candle_cache                import CandleCache
 from .execution.execution_intelligence import ExecutionIntelligence
