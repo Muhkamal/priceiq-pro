@@ -4,6 +4,7 @@ PriceIQ Pro V5 — Main Entry Point
 import sys
 import os
 import logging
+import asyncio
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
@@ -18,14 +19,40 @@ logger = logging.getLogger(__name__)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# ============ LIFESPAN (must be defined BEFORE FastAPI()) ============
+# ============ BACKGROUND TRADING LOOP ============
+async def trading_loop():
+    from app.services.v5_orchestrator_final import get_v5
+
+    while True:
+        try:
+            v5 = get_v5()
+
+            if v5:
+                if hasattr(v5, "run_cycle"):
+                    result = v5.run_cycle()
+                    if asyncio.iscoroutine(result):
+                        await result
+
+                elif hasattr(v5, "scan_market"):
+                    result = v5.scan_market()
+                    if asyncio.iscoroutine(result):
+                        await result
+
+                logger.info("✅ Market scan executed")
+
+        except Exception as e:
+            logger.error(f"❌ Trading loop error: {e}")
+
+        await asyncio.sleep(60)
+
+
+# ============ LIFESPAN ============
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     logger.info("PriceIQ Pro V5 Starting...")
     logger.info("=" * 60)
 
-    # Initialize V5 orchestrator
     try:
         from app.services.v5_orchestrator_final import init_v5
         from app.services.core.v5_settings import v5_settings
@@ -49,7 +76,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"V5 init failed: {e}")
         traceback.print_exc()
 
-    # Mount routers after V5 is initialised
+    # Mount routers
     try:
         from app.services.api.v5_dashboard_api import v5_router
         app.include_router(v5_router)
@@ -71,12 +98,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Broker webhook V5: {e}")
 
+    # 🔥 START BACKGROUND LOOP
+    asyncio.create_task(trading_loop())
+
     logger.info("PriceIQ Pro V5 — Fully operational")
     yield
     logger.info("Shutting down PriceIQ Pro V5...")
 
 
-# ============ CREATE APP (after lifespan is defined) ============
+# ============ CREATE APP ============
 app = FastAPI(
     title="PriceIQ Pro V5",
     description="Autonomous AI Forex Trading System",
@@ -92,7 +122,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ============ STATIC ROUTERS (mounted at import time) ============
+# ============ ROUTERS ============
 try:
     from app.routers import signals, signals_v32, system
     app.include_router(signals.router)
@@ -145,7 +175,7 @@ except Exception as e:
     logger.warning(f"V5 fallback: {e}")
 
 
-# ============ HEALTH CHECK ============
+# ============ HEALTH ============
 @app.get("/health")
 async def health():
     return {
@@ -162,6 +192,7 @@ async def root():
         v5_status = "running" if v5 else "not initialised"
     except Exception:
         v5_status = "error"
+
     return {
         "app": "PriceIQ Pro V5",
         "version": "5.0.0",
