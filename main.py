@@ -55,7 +55,31 @@ async def trading_loop():
                 
                 try:
                     if hasattr(v5, "run_signal_cycle"):
-                        logger.info("⚠️ run_signal_cycle requires candles — skipping for now")
+                        # Fetch candles and run signal cycle for each pair
+                        try:
+                            from app.services.data_fetcher import DataFetcher
+                            fetcher  = DataFetcher()
+                            watchlist = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD"]
+                            for pair in watchlist:
+                                try:
+                                    candles = await fetcher.get_candles(pair, "1h", limit=300)
+                                    if candles and len(candles) >= 55:
+                                        result = await v5.run_signal_cycle(
+                                            candles=candles,
+                                            pair=pair,
+                                            timeframe="1h",
+                                            signal_bar_index=_scan_count,
+                                        )
+                                        if result and result.signal_fired:
+                                            logger.info(f"🎯 SIGNAL: {pair} {result.direction} conf={result.confidence:.0%}")
+                                        else:
+                                            logger.debug(f"No signal: {pair}")
+                                    else:
+                                        logger.warning(f"Insufficient candles for {pair}: {len(candles) if candles else 0}")
+                                except Exception as pair_e:
+                                    logger.warning(f"Signal cycle error ({pair}): {pair_e}")
+                        except Exception as fetch_e:
+                            logger.warning(f"Data fetch error: {fetch_e}")
                         result = None
                     else:
                         logger.error("❌ No valid execution method in V5")
