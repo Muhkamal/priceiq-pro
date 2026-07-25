@@ -210,7 +210,7 @@ class V5OrchestratorFinal:
         self.starting_balance = starting_balance
 
         # ── ML ───────────────────────────────────────────────
-        self.regime_clf        = RegimeClassifier().load(regime_model_path)
+        self.regime_clf = RegimeClassifier(model_path=regime_model_path)
         self.drift_monitor     = FeatureDriftMonitor()
         self.win_prob_cal      = WinProbabilityCalibrator(win_prob_path)
         self.augmenter         = SyntheticDataAugmenter()

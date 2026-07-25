@@ -69,7 +69,7 @@ async def trading_loop():
                                             candles=candles,
                                             pair=pair,
                                             timeframe="1h",
-                                            signal_bar_index=_scan_count,
+                                            signal_bar_index=0,
                                         )
                                         if result and result.signal_fired:
                                             logger.info(f"🎯 SIGNAL: {pair} {result.direction} conf={result.confidence:.0%}")
