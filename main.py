@@ -39,6 +39,7 @@ except Exception as e:
 
 # ============ BACKGROUND TRADING LOOP ============
 async def trading_loop():
+    _scan_count = 0
     try:
         from app.services.v5_orchestrator_final import get_v5
     except Exception as e:
@@ -93,7 +94,8 @@ async def trading_loop():
                 if asyncio.iscoroutine(result):
                     await result
 
-                logger.info("🔥 LOOP RUNNING — market scan executed")
+                _scan_count += 1
+                logger.info(f"🔥 LOOP RUNNING — scan #{_scan_count} complete")
 
         except Exception as e:
             logger.error(f"❌ Trading loop error: {e}")
