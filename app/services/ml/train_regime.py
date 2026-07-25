@@ -35,8 +35,8 @@ async def main():
         print(f"CV accuracy: {result.get('cv_accuracy'):.2f}")
 
         # ✅ Save model
-        model.save("regime_model.pkl")
-        print("💾 Model saved as regime_model.pkl")
+        model.model.save_model("regime_model.json")
+        print("💾 Model saved as regime_model.json")
 
     except Exception as e:
         print(f"\n❌ Training failed: {e}")

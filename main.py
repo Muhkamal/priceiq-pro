@@ -52,19 +52,19 @@ async def trading_loop():
             if v5:
                 result = None
 
+                
                 try:
-                    # Try both possible method names safely
-                    if hasattr(v5, "run_cycle"):
-                        result = v5.run_cycle()
-                    elif hasattr(v5, "run_signal_cycle"):
-                        # You must pass candles later (for now skip safely)
+                    if hasattr(v5, "run_signal_cycle"):
+                        logger.info("⚠️ run_signal_cycle requires candles — skipping for now")
                         result = None
                     else:
-                        logger.error("❌ No execution method found in V5")
+                        logger.error("❌ No valid execution method in V5")
+                        result = None
 
                 except Exception as e:
                     logger.error(f"❌ execution failed: {e}")
                     result = None
+                
 
                 if asyncio.iscoroutine(result):
                     await result
@@ -75,7 +75,6 @@ async def trading_loop():
             logger.error(f"❌ Trading loop error: {e}")
 
         await asyncio.sleep(60)
-
 # ============ LIFESPAN ============
 @asynccontextmanager
 async def lifespan(app: FastAPI):
