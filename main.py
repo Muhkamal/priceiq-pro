@@ -77,6 +77,7 @@ async def trading_loop():
                                             logger.debug(f"No signal: {pair}")
                                     else:
                                         logger.warning(f"Insufficient candles for {pair}: {len(candles) if candles else 0}")
+                                await asyncio.sleep(2)
                                 except Exception as pair_e:
                                     logger.warning(f"Signal cycle error ({pair}): {pair_e}")
                         except Exception as fetch_e:
@@ -100,7 +101,7 @@ async def trading_loop():
         except Exception as e:
             logger.error(f"❌ Trading loop error: {e}")
 
-        await asyncio.sleep(60)
+        await asyncio.sleep(300)
 # ============ LIFESPAN ============
 @asynccontextmanager
 async def lifespan(app: FastAPI):
