@@ -1,118 +1,65 @@
-"""
-PriceIQ Pro V5 — Main Entry Point
-"""
-import sys
-import os
-import logging
-import asyncio
+"""PriceIQ Pro V5 — Main Entry Point"""
+import sys, os, asyncio, logging
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# ============================================================
-# SAFE OPTIONAL IMPORTS (🔥 prevents crashes)
-# ============================================================
-
-# sklearn-safe (prevents crash if not installed)
-try:
-    from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-except Exception as e:
-    logger.warning(f"⚠️ sklearn not installed: {e}")
-
-# advanced analyzer safe import
-try:
-    from app.services.market_analyzer_advanced import MAETradingFormula
-except Exception as e:
-    logger.warning(f"⚠️ Advanced analyzer missing: {e}")
-    MAETradingFormula = None
-
-
-# ============ BACKGROUND TRADING LOOP ============
 async def trading_loop():
-    _scan_count = 0
+    scan_count = 0
+    await asyncio.sleep(10)
     try:
-        from app.services.v5_orchestrator_final import get_v5
+        from app.services.data_fetcher import DataFetcher
+        fetcher = DataFetcher()
     except Exception as e:
-        logger.error(f"❌ Cannot import V5: {e}")
+        logger.error(f"DataFetcher init failed: {e}")
         return
+
+    watchlist = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD"]
 
     while True:
         try:
+            from app.services.v5_orchestrator_final import get_v5
             v5 = get_v5()
-
-            if v5:
-                result = None
-
-                
-                try:
-                    if hasattr(v5, "run_signal_cycle"):
-                        # Fetch candles and run signal cycle for each pair
-                        try:
-                            from app.services.data_fetcher import DataFetcher
-                            fetcher  = DataFetcher()
-                            watchlist = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD"]
-                            for pair in watchlist:
-                                try:
-                                    candles = await fetcher.get_candles(pair, "1h", limit=300)
-                                    if candles and len(candles) >= 55:
-                                        result = await v5.run_signal_cycle(
-                                            candles=candles,
-                                            pair=pair,
-                                            timeframe="1h",
-                                            signal_bar_index=0,
-                                        )
-                                        if result and result.signal_fired:
-                                            logger.info(f"🎯 SIGNAL: {pair} {result.direction} conf={result.confidence:.0%}")
-                                        else:
-                                            logger.debug(f"No signal: {pair}")
-                                    else:
-                                        logger.warning(f"Insufficient candles for {pair}: {len(candles) if candles else 0}")
-                                await asyncio.sleep(2)
-                                except Exception as pair_e:
-                                    logger.warning(f"Signal cycle error ({pair}): {pair_e}")
-                        except Exception as fetch_e:
-                            logger.warning(f"Data fetch error: {fetch_e}")
-                        result = None
-                    else:
-                        logger.error("❌ No valid execution method in V5")
-                        result = None
-
-                except Exception as e:
-                    logger.error(f"❌ execution failed: {e}")
-                    result = None
-                
-
-                if asyncio.iscoroutine(result):
-                    await result
-
-                _scan_count += 1
-                logger.info(f"🔥 LOOP RUNNING — scan #{_scan_count} complete")
-
+            if v5 and hasattr(v5, "run_signal_cycle"):
+                scan_count += 1
+                logger.info(f"Scan #{scan_count} starting...")
+                for pair in watchlist:
+                    try:
+                        candles = await fetcher.get_candles(pair, "1h", limit=300)
+                        if candles and len(candles) >= 55:
+                            result = await v5.run_signal_cycle(
+                                candles=candles,
+                                pair=pair,
+                                timeframe="1h",
+                                signal_bar_index=scan_count,
+                            )
+                            if result and result.signal_fired:
+                                logger.info(f"SIGNAL: {pair} {result.direction} conf={result.confidence:.0%}")
+                            else:
+                                logger.debug(f"No signal: {pair}")
+                        else:
+                            logger.warning(f"Insufficient candles: {pair} got {len(candles) if candles else 0}")
+                        await asyncio.sleep(3)
+                    except Exception as e:
+                        logger.warning(f"Pair error ({pair}): {e}")
+                logger.info(f"Scan #{scan_count} complete")
         except Exception as e:
-            logger.error(f"❌ Trading loop error: {e}")
-
+            logger.error(f"Trading loop error: {e}")
         await asyncio.sleep(300)
-# ============ LIFESPAN ============
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("=" * 60)
     logger.info("PriceIQ Pro V5 Starting...")
-    logger.info("=" * 60)
 
     try:
         from app.services.v5_orchestrator_final import init_v5
         from app.services.core.v5_settings import v5_settings
-
         v5 = init_v5(
             starting_balance=v5_settings.ACCOUNT_BALANCE,
             risk_pct=v5_settings.RISK_PERCENT,
@@ -132,66 +79,43 @@ async def lifespan(app: FastAPI):
         logger.error(f"V5 init failed: {e}")
         traceback.print_exc()
 
-    # Mount routers
+    asyncio.create_task(trading_loop())
+    logger.info("Trading loop started")
+
     try:
         from app.services.api.v5_dashboard_api import v5_router
         app.include_router(v5_router)
-        logger.info("V5 dashboard router mounted")
     except Exception as e:
         logger.warning(f"V5 dashboard router: {e}")
 
     try:
         from app.services.api.websocket_dashboard import ws_router
         app.include_router(ws_router)
-        logger.info("WebSocket router mounted")
     except Exception as e:
         logger.warning(f"WebSocket router: {e}")
 
     try:
         from app.services.api.broker_webhook_v5 import broker_webhook_router
         app.include_router(broker_webhook_router)
-        logger.info("Broker webhook V5 mounted")
     except Exception as e:
         logger.warning(f"Broker webhook V5: {e}")
 
-    # 🔥 START BACKGROUND LOOP (RENDER-SAFE)
-    try:
-        loop = asyncio.get_event_loop()
-        loop.create_task(trading_loop())
-        logger.info("🔥 Trading loop started")
-    except Exception as e:
-        logger.error(f"❌ Failed to start trading loop: {e}")
-
     logger.info("PriceIQ Pro V5 — Fully operational")
     yield
-    logger.info("Shutting down PriceIQ Pro V5...")
+    logger.info("Shutting down...")
 
+app = FastAPI(title="PriceIQ Pro V5", version="5.0.0", lifespan=lifespan)
 
-# ============ CREATE APP ============
-app = FastAPI(
-    title="PriceIQ Pro V5",
-    description="Autonomous AI Forex Trading System",
-    version="5.0.0",
-    lifespan=lifespan,
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ============ ROUTERS ============
 try:
     from app.routers import signals, signals_v32, system
     app.include_router(signals.router)
     app.include_router(signals_v32.router)
     app.include_router(system.router)
-    logger.info("Core routers mounted")
 except Exception as e:
-    logger.error(f"Core routers failed: {e}")
+    logger.error(f"Core routers: {e}")
 
 try:
     from app.routers import session, circuit_breaker, correlation
@@ -202,9 +126,8 @@ try:
     app.include_router(price_validator.router)
     app.include_router(multi_timeframe.router)
     app.include_router(patterns.router)
-    logger.info("Feature routers mounted")
 except Exception as e:
-    logger.error(f"Feature routers failed: {e}")
+    logger.error(f"Feature routers: {e}")
 
 try:
     from app.routers import auth, database, monte_carlo, scheduler
@@ -212,15 +135,14 @@ try:
     app.include_router(database.router)
     app.include_router(monte_carlo.router)
     app.include_router(scheduler.router)
-    logger.info("Admin routers mounted")
 except Exception as e:
-    logger.error(f"Admin routers failed: {e}")
+    logger.error(f"Admin routers: {e}")
 
 try:
     from app.routers import trade_engine
     app.include_router(trade_engine.router)
 except Exception as e:
-    logger.warning(f"Trade engine router: {e}")
+    logger.warning(f"Trade engine: {e}")
 
 try:
     from app.routers import broker_webhook
@@ -231,39 +153,23 @@ except Exception as e:
 try:
     from app.routers.v5 import router as v5_fallback
     app.include_router(v5_fallback)
-    logger.info("V5 fallback router mounted")
 except Exception as e:
     logger.warning(f"V5 fallback: {e}")
 
-
-# ============ HEALTH ============
-from datetime import datetime, timezone
-
-@app.api_route("/health", methods=["GET", "HEAD"])
+@app.get("/health")
 async def health():
-    return {
-        "status": "healthy",
-        "version": "5.0.0",
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
+    return {"status": "healthy", "version": "5.0.0",
+            "timestamp": datetime.now(timezone.utc).isoformat()}
 
 @app.get("/")
 async def root():
     try:
         from app.services.v5_orchestrator_final import get_v5
-        v5 = get_v5()
-        v5_status = "running" if v5 else "not initialised"
+        v5_status = "running" if get_v5() else "not initialised"
     except Exception:
         v5_status = "error"
-
-    return {
-        "app": "PriceIQ Pro V5",
-        "version": "5.0.0",
-        "status": "running",
-        "v5": v5_status,
-        "docs": "/docs"
-    }
-
+    return {"app": "PriceIQ Pro V5", "version": "5.0.0",
+            "status": "running", "v5": v5_status, "docs": "/docs"}
 
 if __name__ == "__main__":
     import uvicorn
