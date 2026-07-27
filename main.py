@@ -41,6 +41,20 @@ async def trading_loop():
                             )
                             if result and result.signal_fired:
                                 logger.info(f"SIGNAL: {pair} {result.direction} conf={result.confidence:.0%}")
+                                try:
+                                    from app.services.telegram_bot import telegram as tg
+                                    await tg.send_message(
+                                        f"🎯 <b>SIGNAL: {pair}</b>\n"
+                                        f"Direction: {result.direction.upper()}\n"
+                                        f"Confidence: {result.confidence:.0%}\n"
+                                        f"Agent: {result.agent_used}\n"
+                                        f"Regime: {result.regime}\n"
+                                        f"Entry: {result.fill_price}\n"
+                                        f"SL: {result.stop_loss}\n"
+                                        f"TP1: {result.take_profit_1}"
+                                    )
+                                except Exception as tg_e:
+                                    logger.warning(f"Telegram alert failed: {tg_e}")
                             else:
                                 logger.debug(f"No signal: {pair}")
                         else:
@@ -60,6 +74,7 @@ async def lifespan(app: FastAPI):
     logger.info("PriceIQ Pro V5 Starting...")
 
     try:
+        from app.services.telegram_bot import telegram as telegram_bot
         from app.services.v5_orchestrator_final import init_v5
         from app.services.core.v5_settings import v5_settings
         v5 = init_v5(
@@ -73,7 +88,7 @@ async def lifespan(app: FastAPI):
             win_prob_path=v5_settings.WIN_PROB_PATH,
             transition_path=v5_settings.TRANSITION_PATH,
             journal_path=v5_settings.JOURNAL_PATH,
-            telegram=None,
+            telegram=telegram_bot,
         )
         logger.info("V5 Orchestrator initialized OK")
     except Exception as e:
