@@ -21,7 +21,7 @@ async def status():
                 "status":     "running",
                 "version":    "5.0.0",
                 "started_at": s.get("started_at"),
-                "scan_count": s.get("scan_count", 0),
+                "scan_count": getattr(v5, "_scan_count", 0),
                 "last_scan":  s.get("last_scan"),
                 "regime":     s.get("regime", "unknown"),
                 "timestamp":  datetime.now(timezone.utc).isoformat(),

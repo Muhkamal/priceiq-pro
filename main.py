@@ -48,6 +48,8 @@ async def trading_loop():
                         await asyncio.sleep(3)
                     except Exception as e:
                         logger.warning(f"Pair error ({pair}): {e}")
+                v5._scan_count = scan_count
+                v5._scan_count = scan_count
                 logger.info(f"Scan #{scan_count} complete")
         except Exception as e:
             logger.error(f"Trading loop error: {e}")
