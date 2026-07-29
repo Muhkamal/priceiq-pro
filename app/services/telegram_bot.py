@@ -36,7 +36,13 @@ class TelegramBot:
 
     async def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
         """Send a plain message."""
+        # Re-read env vars in case they were set after import
+        if not self.token:
+            self.token   = os.getenv("TELEGRAM_BOT_TOKEN", "")
+            self.chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+            self.enabled = bool(self.token and self.chat_id)
         if not self.enabled:
+            logger.warning("Telegram not enabled - token or chat_id missing")
             return False
         try:
             async with httpx.AsyncClient(timeout=10) as client:
