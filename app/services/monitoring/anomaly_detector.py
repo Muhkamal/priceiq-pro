@@ -168,8 +168,14 @@ class AnomalyDetector:
             logger.debug(f"Direction streak check error: {e}")
 
         # ── 5. Zero / invalid range (corrupted data) ─────────
+        # Only block on 3+ consecutive zero-range candles (single zeros are normal in forex/Yahoo Finance)
         try:
-            if current.high <= current.low or current.high == current.open == current.close == current.low:
+            recent_zero = sum(
+                1 for c in candles[-5:]
+                if getattr(c, "high", 1) == getattr(c, "low", 0)
+                or getattr(c, "range", 1) == 0
+            )
+            if recent_zero >= 3:
                 anomalies.append("ZERO_RANGE_CANDLE (data corruption suspected)")
                 block = True
         except Exception as e:

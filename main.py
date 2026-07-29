@@ -33,6 +33,13 @@ async def trading_loop():
                     try:
                         candles = await fetcher.get_candles(pair, "1h", limit=300)
                         if candles and len(candles) >= 55:
+                            # Remove zero-range candles (Yahoo Finance weekend artifacts)
+                            candles = [c for c in candles
+                                       if getattr(c, "high", 1) != getattr(c, "low", 0)]
+                            if len(candles) < 55:
+                                logger.warning(f"Too few candles after sanitization: {pair}")
+                                await asyncio.sleep(3)
+                                continue
                             result = await v5.run_signal_cycle(
                                 candles=candles,
                                 pair=pair,
