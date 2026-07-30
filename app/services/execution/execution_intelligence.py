@@ -58,6 +58,17 @@ class ExecutionIntelligence:
             adjusted_entry=round(fill, 6),
         )
 
+    def simulate_fill(
+        self,
+        pair: str,
+        direction: str,
+        signal_price: float,
+        session: str = "london",
+        atr: float = 0.001,
+    ) -> "ExecutionResult":
+        """Alias for estimate_fill — backward compatibility."""
+        return self.estimate_fill(pair, direction, signal_price, session, atr)
+
     def get_session(self) -> str:
         h = datetime.now(timezone.utc).hour
 

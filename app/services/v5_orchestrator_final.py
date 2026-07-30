@@ -397,9 +397,19 @@ class V5OrchestratorFinal:
                                    regime=regime, reason=f"Orchestrator error: {e}")
 
         if orch_result is None:
+            logger.info(f"[DEBUG] {pair}: All agents returned None/invalid signal in {regime} regime")
             await self.monitor.on_signal_blocked(pair, "No agent produced valid signal")
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime, reason="No agent signal")
+
+        # Log agent confidence for debugging
+        logger.info(
+            f"[DEBUG] {pair}: best agent={orch_result.selected_agent} "
+            f"dir={orch_result.selected_signal.direction} "
+            f"conf={orch_result.selected_signal.confidence:.3f} "
+            f"ev={orch_result.selected_signal.expected_value:.3f} "
+            f"regime_fit={orch_result.selected_signal.regime_fit:.3f}"
+        )
 
         signal    = orch_result.selected_signal
         agent     = orch_result.selected_agent
@@ -429,7 +439,7 @@ class V5OrchestratorFinal:
                                    ev_b=True)
 
         # ── Gate 7: Adaptive confidence threshold ─────────────
-        threshold = self.learning.get_confidence_threshold(pair)
+        threshold = min(self.learning.get_confidence_threshold(pair), 0.60)
         if adj_conf < threshold:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime,
