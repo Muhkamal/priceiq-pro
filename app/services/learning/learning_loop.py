@@ -155,7 +155,7 @@ class AdaptiveLearner:
 
     def __init__(self):
         self._agent_weights: Dict[str, float] = defaultdict(lambda: 1.0)
-        self._pair_thresholds: Dict[str, float] = defaultdict(lambda: 0.55)
+        self._pair_thresholds: Dict[str, float] = defaultdict(lambda: 0.45)
 
     def update_from_outcome(self, outcome: TradeOutcome, all_records: List[TradeOutcome]):
         """Update weights and thresholds based on a new trade outcome."""
@@ -207,7 +207,7 @@ class AdaptiveLearner:
         return dict(self._agent_weights)
 
     def get_confidence_threshold(self, pair: str) -> float:
-        return self._pair_thresholds.get(pair.upper(), 0.55)
+        return self._pair_thresholds.get(pair.upper(), 0.45)
 
     def get_pair_stats(self, pair: str, records: List[TradeOutcome]) -> Dict[str, Any]:
         pair_recs = [r for r in records if r.pair.upper() == pair.upper()]
