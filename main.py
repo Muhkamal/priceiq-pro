@@ -1,5 +1,5 @@
 """PriceIQ Pro V5 — Main Entry Point"""
-import sys, os, asyncio, logging
+import sys, os, asyncio, logging, httpx
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
@@ -49,17 +49,27 @@ async def trading_loop():
                             if result and result.signal_fired:
                                 logger.info(f"SIGNAL: {pair} {result.direction} conf={result.confidence:.0%}")
                                 try:
-                                    from app.services.telegram_bot import telegram as tg
-                                    await tg.send_message(
-                                        f"🎯 <b>SIGNAL: {pair}</b>\n"
-                                        f"Direction: {result.direction.upper()}\n"
-                                        f"Confidence: {result.confidence:.0%}\n"
-                                        f"Agent: {result.agent_used}\n"
-                                        f"Regime: {result.regime}\n"
-                                        f"Entry: {result.fill_price}\n"
-                                        f"SL: {result.stop_loss}\n"
-                                        f"TP1: {result.take_profit_1}"
-                                    )
+                                    tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
+                                    tg_chat = os.getenv("TELEGRAM_CHAT_ID")
+                                    if tg_token and tg_chat:
+                                        msg = (
+                                            f"🎯 <b>SIGNAL: {pair}</b>\n"
+                                            f"Direction: {result.direction.upper()}\n"
+                                            f"Confidence: {result.confidence:.0%}\n"
+                                            f"Agent: {result.agent_used}\n"
+                                            f"Regime: {result.regime}\n"
+                                            f"Entry: {result.fill_price}\n"
+                                            f"SL: {result.stop_loss}\n"
+                                            f"TP1: {result.take_profit_1}"
+                                        )
+                                        async with httpx.AsyncClient(timeout=10) as client:
+                                            await client.post(
+                                                f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                                                json={"chat_id": tg_chat, "text": msg, "parse_mode": "HTML"}
+                                            )
+                                        logger.info("Telegram alert sent ✅")
+                                    else:
+                                        logger.warning("Telegram not configured (missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID)")
                                 except Exception as tg_e:
                                     logger.warning(f"Telegram alert failed: {tg_e}")
                             else:
@@ -69,7 +79,6 @@ async def trading_loop():
                         await asyncio.sleep(3)
                     except Exception as e:
                         logger.warning(f"Pair error ({pair}): {e}")
-                v5._scan_count = scan_count
                 v5._scan_count = scan_count
                 logger.info(f"Scan #{scan_count} complete")
         except Exception as e:

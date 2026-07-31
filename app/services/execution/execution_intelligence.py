@@ -62,12 +62,17 @@ class ExecutionIntelligence:
         self,
         pair: str,
         direction: str,
-        signal_price: float,
+        signal_price: float = 0.0,
         session: str = "london",
         atr: float = 0.001,
+        requested_price: float = None,
+        order_type: str = "market",
+        lots: float = 0.01,
+        **kwargs,
     ) -> "ExecutionResult":
-        """Alias for estimate_fill — backward compatibility."""
-        return self.estimate_fill(pair, direction, signal_price, session, atr)
+        """Alias for estimate_fill — accepts all orchestrator kwargs."""
+        price = requested_price if requested_price is not None else signal_price
+        return self.estimate_fill(pair, direction, price, session, atr)
 
     def get_session(self) -> str:
         h = datetime.now(timezone.utc).hour
