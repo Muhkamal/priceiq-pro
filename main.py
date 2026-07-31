@@ -1,4 +1,4 @@
-"""PriceIQ Pro V5 — Main Entry Point (SAFE)"""
+"""PriceIQ Pro V5 — Main Entry Point (SAFE v2 — cooldown before trade)"""
 import sys, os, asyncio, logging, httpx
 from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
@@ -44,6 +44,17 @@ async def trading_loop():
                                 logger.warning(f"Too few candles after sanitization: {pair}")
                                 await asyncio.sleep(3)
                                 continue
+
+                            # ── SIGNAL COOLDOWN CHECK (BEFORE trade) ──
+                            now = datetime.now(timezone.utc)
+                            last_time = _signal_cooldown.get(pair)
+                            if last_time and (now - last_time) < timedelta(minutes=SIGNAL_COOLDOWN_MIN):
+                                mins_ago = int((now - last_time).total_seconds() / 60)
+                                logger.info(f"Signal cooldown: {pair} skipped ({mins_ago}m ago)")
+                                await asyncio.sleep(3)
+                                continue
+                            # ───────────────────────────────────────────
+
                             result = await v5.run_signal_cycle(
                                 candles=candles,
                                 pair=pair,
@@ -51,16 +62,8 @@ async def trading_loop():
                                 signal_bar_index=scan_count,
                             )
                             if result and result.signal_fired:
-                                # ── SIGNAL COOLDOWN CHECK ──
-                                now = datetime.now(timezone.utc)
-                                last_time = _signal_cooldown.get(pair)
-                                if last_time and (now - last_time) < timedelta(minutes=SIGNAL_COOLDOWN_MIN):
-                                    mins_ago = int((now - last_time).total_seconds() / 60)
-                                    logger.info(f"Signal cooldown: {pair} blocked ({mins_ago}m ago)")
-                                    await asyncio.sleep(3)
-                                    continue
-                                _signal_cooldown[pair] = now
-                                # ───────────────────────────
+                                # Record cooldown ONLY when signal actually fires
+                                _signal_cooldown[pair] = datetime.now(timezone.utc)
 
                                 logger.info(f"SIGNAL: {pair} {result.direction} conf={result.confidence:.0%}")
                                 try:
