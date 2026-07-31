@@ -1,16 +1,7 @@
 """
-PriceIQ Pro — Multi-Agent Strategy Layer v1.0
+PriceIQ Pro — Multi-Agent Strategy Layer v1.1 (Relaxed)
 
-Four competing strategy agents. Each produces an AgentSignal independently.
-The AgentOrchestrator selects the best agent per regime using weighted scoring.
-
-Agents:
-    TrendAgent          — EMA crossover + MACD momentum
-    MeanReversionAgent  — RSI extremes + Bollinger Band touch
-    BreakoutAgent       — Volatility compression + range expansion
-    LiquidityTrapAgent  — False breakout detection (wick traps)
-
-All agents share a common interface: agent.evaluate(candles, regime) → AgentSignal
+Four competing strategy agents with relaxed thresholds for live trading.
 """
 
 from __future__ import annotations
@@ -72,20 +63,20 @@ def _atr(candles, period=14) -> float:
 
 
 # ============================================================
-# AGENT SIGNAL — standard output for all agents
+# AGENT SIGNAL
 # ============================================================
 
 @dataclass
 class AgentSignal:
     agent_name:     str
-    direction:      Optional[str]    # "buy" | "sell" | None
-    confidence:     float            # 0.0 – 1.0
-    win_probability: float           # estimated win prob 0–1
-    expected_value: float            # EV in R-multiples
-    stop_distance:  float            # in price units
+    direction:      Optional[str]
+    confidence:     float
+    win_probability: float
+    expected_value: float
+    stop_distance:  float
     tp1_distance:   float
     tp2_distance:   float
-    regime_fit:     float            # how well agent fits current regime (0–1)
+    regime_fit:     float
     reasoning:      str
     raw_features:   Dict = field(default_factory=dict)
 
@@ -127,16 +118,15 @@ class BaseAgent:
 
 
 # ============================================================
-# AGENT 1 — TREND AGENT
+# AGENT 1 — TREND AGENT (RELAXED)
 # ============================================================
 
 class TrendAgent(BaseAgent):
     """
-    EMA 20/50 crossover + MACD histogram direction + momentum filter.
-    Best in trending regimes.
+    EMA 20/50 crossover + MACD momentum.
+    RELAXED: Removed RSI ceiling for trend continuation.
     """
     NAME = "TrendAgent"
-
     REGIME_FIT = {"trending": 1.0, "ranging": 0.2, "volatile": 0.4}
 
     def evaluate(self, candles: list, regime: str) -> AgentSignal:
@@ -150,7 +140,6 @@ class TrendAgent(BaseAgent):
         ema20 = _ema(closes, 20)
         ema50 = _ema(closes, 50)
 
-        # MACD
         macd_line  = [f - s for f, s in zip(_ema(closes, 12), _ema(closes, 26))]
         macd_sig   = _ema(macd_line, 9)
         macd_hist  = macd_line[-1] - macd_sig[-1] if macd_sig else 0.0
@@ -160,25 +149,24 @@ class TrendAgent(BaseAgent):
         prev_ema20 = ema20[-2]
         prev_ema50 = ema50[-2]
 
-        # Fresh crossover
         bullish_cross = (prev_ema20 <= prev_ema50) and (curr_ema20 > curr_ema50)
         bearish_cross = (prev_ema20 >= prev_ema50) and (curr_ema20 < curr_ema50)
-        # Trend continuation
         bullish_trend = curr_ema20 > curr_ema50 * 1.001
         bearish_trend = curr_ema20 < curr_ema50 * 0.999
 
         atr = _atr(candles)
         rsi = _rsi(closes)
 
-        if bullish_cross or (bullish_trend and macd_hist > 0 and rsi < 65):
+        # FIX: Removed RSI < 65 filter for continuation. Trending markets naturally have elevated RSI.
+        if bullish_cross or (bullish_trend and macd_hist > 0):
             direction   = "buy"
-            confidence  = 0.80 if bullish_cross else 0.65
-            win_prob    = 0.58 if bullish_cross else 0.54
+            confidence  = 0.80 if bullish_cross else 0.60
+            win_prob    = 0.58 if bullish_cross else 0.52
             reasoning   = f"EMA20 > EMA50 {'(fresh cross)' if bullish_cross else '(continuation)'}. MACD hist={macd_hist:.6f}. RSI={rsi:.1f}."
-        elif bearish_cross or (bearish_trend and macd_hist < 0 and rsi > 35):
+        elif bearish_cross or (bearish_trend and macd_hist < 0):
             direction   = "sell"
-            confidence  = 0.80 if bearish_cross else 0.65
-            win_prob    = 0.58 if bearish_cross else 0.54
+            confidence  = 0.80 if bearish_cross else 0.60
+            win_prob    = 0.58 if bearish_cross else 0.52
             reasoning   = f"EMA20 < EMA50 {'(fresh cross)' if bearish_cross else '(continuation)'}. MACD hist={macd_hist:.6f}. RSI={rsi:.1f}."
         else:
             return self._null_signal(f"No trend signal. EMA20={curr_ema20:.5f} EMA50={curr_ema50:.5f}")
@@ -205,16 +193,15 @@ class TrendAgent(BaseAgent):
 
 
 # ============================================================
-# AGENT 2 — MEAN REVERSION AGENT
+# AGENT 2 — MEAN REVERSION AGENT (RELAXED)
 # ============================================================
 
 class MeanReversionAgent(BaseAgent):
     """
-    RSI extremes + Bollinger Band touch + close-to-mean confirmation.
-    Best in ranging regimes.
+    RSI extremes + Bollinger Band touch.
+    RELAXED: Widened RSI thresholds from 32/68 to 40/60.
     """
     NAME = "MeanReversionAgent"
-
     REGIME_FIT = {"trending": 0.2, "ranging": 1.0, "volatile": 0.3}
 
     def evaluate(self, candles: list, regime: str) -> AgentSignal:
@@ -233,26 +220,25 @@ class MeanReversionAgent(BaseAgent):
         lower_bb = sma20 - 2 * std20
         curr     = closes[-1]
 
-        # Oversold + below lower BB → buy reversion
-        if rsi < 32 and curr <= lower_bb * 1.001:
+        # FIX: Widened RSI thresholds. 40/60 captures more reversion setups.
+        if rsi < 40 and curr <= lower_bb * 1.005:
             direction  = "buy"
-            confidence = 0.75 if rsi < 25 else 0.60
-            win_prob   = 0.62 if rsi < 25 else 0.56
+            confidence = 0.70 if rsi < 30 else 0.55
+            win_prob   = 0.58 if rsi < 30 else 0.52
             reasoning  = f"RSI={rsi:.1f} oversold, price at lower BB ({lower_bb:.5f}). Mean reversion BUY."
-        # Overbought + above upper BB → sell reversion
-        elif rsi > 68 and curr >= upper_bb * 0.999:
+        elif rsi > 60 and curr >= upper_bb * 0.995:
             direction  = "sell"
-            confidence = 0.75 if rsi > 75 else 0.60
-            win_prob   = 0.62 if rsi > 75 else 0.56
+            confidence = 0.70 if rsi > 70 else 0.55
+            win_prob   = 0.58 if rsi > 70 else 0.52
             reasoning  = f"RSI={rsi:.1f} overbought, price at upper BB ({upper_bb:.5f}). Mean reversion SELL."
         else:
             return self._null_signal(f"No MR signal. RSI={rsi:.1f}, price={curr:.5f}, BB=[{lower_bb:.5f},{upper_bb:.5f}]")
 
         stop_dist = atr * 1.2
-        tp1_dist  = abs(sma20 - curr) * 0.8   # TP near mean
+        tp1_dist  = abs(sma20 - curr) * 0.8
         tp2_dist  = atr * 2.5
         if tp1_dist < atr * 0.5:
-            tp1_dist = atr * 1.0   # minimum sensible TP
+            tp1_dist = atr * 1.0
 
         ev = win_prob * _safe_div(tp1_dist, stop_dist) - (1 - win_prob)
 
@@ -272,16 +258,15 @@ class MeanReversionAgent(BaseAgent):
 
 
 # ============================================================
-# AGENT 3 — BREAKOUT AGENT
+# AGENT 3 — BREAKOUT AGENT (RELAXED)
 # ============================================================
 
 class BreakoutAgent(BaseAgent):
     """
-    Volatility compression (ATR squeeze) followed by range expansion.
-    Best in volatile / transitional regimes.
+    Volatility compression + range expansion.
+    RELAXED: ATR compression threshold 0.90 → 0.98.
     """
     NAME = "BreakoutAgent"
-
     REGIME_FIT = {"trending": 0.5, "ranging": 0.4, "volatile": 1.0}
     COMPRESSION_BARS = 10
 
@@ -293,7 +278,6 @@ class BreakoutAgent(BaseAgent):
         atr_baseline = _atr(candles, 20)
         compression  = _safe_div(atr_current, atr_baseline)
 
-        # Recent range highs / lows
         recent = candles[-self.COMPRESSION_BARS:]
         highs  = [c.high  for c in recent if hasattr(c, "high")  and np.isfinite(c.high)]
         lows   = [c.low   for c in recent if hasattr(c, "low")   and np.isfinite(c.low)]
@@ -306,20 +290,19 @@ class BreakoutAgent(BaseAgent):
         curr       = candles[-1].close
         atr        = _atr(candles)
 
-        # Compression check: ATR contracted
-        if compression > 0.90:
-            return self._null_signal(f"No compression. ATR ratio={compression:.2f} (need < 0.90)")
+        # FIX: 0.90 was too strict. Normal ATR is ~100% of baseline. 0.98 allows normal compression.
+        if compression > 0.98:
+            return self._null_signal(f"No compression. ATR ratio={compression:.2f} (need < 0.98)")
 
-        # Breakout: current bar closes outside the compressed range
         if curr > range_high:
             direction  = "buy"
-            confidence = 0.72 if compression < 0.65 else 0.58
-            win_prob   = 0.55
+            confidence = 0.68 if compression < 0.65 else 0.52
+            win_prob   = 0.53
             reasoning  = f"Upside breakout above {range_high:.5f}. ATR compression={compression:.2f}."
         elif curr < range_low:
             direction  = "sell"
-            confidence = 0.72 if compression < 0.65 else 0.58
-            win_prob   = 0.55
+            confidence = 0.68 if compression < 0.65 else 0.52
+            win_prob   = 0.53
             reasoning  = f"Downside breakout below {range_low:.5f}. ATR compression={compression:.2f}."
         else:
             return self._null_signal(f"Price inside range [{range_low:.5f}, {range_high:.5f}]. Awaiting breakout.")
@@ -346,20 +329,17 @@ class BreakoutAgent(BaseAgent):
 
 
 # ============================================================
-# AGENT 4 — LIQUIDITY TRAP AGENT
+# AGENT 4 — LIQUIDITY TRAP AGENT (RELAXED)
 # ============================================================
 
 class LiquidityTrapAgent(BaseAgent):
     """
-    Detects fake breakouts (stop hunts / wick traps) and fades them.
-
-    Pattern: price spikes beyond S/R with a large wick but closes back
-    inside the range — indicating smart money trapped retail.
+    Detects fake breakouts (stop hunts / wick traps).
+    RELAXED: Wick ratio 2.5x → 1.8x.
     """
     NAME = "LiquidityTrapAgent"
-
     REGIME_FIT = {"trending": 0.3, "ranging": 0.8, "volatile": 0.7}
-    WICK_RATIO_MIN = 2.5   # wick must be 2.5× body
+    WICK_RATIO_MIN = 1.8   # FIX: 2.5 was too rare. 1.8 catches more traps.
     LOOKBACK = 20
 
     def evaluate(self, candles: list, regime: str) -> AgentSignal:
@@ -375,7 +355,6 @@ class LiquidityTrapAgent(BaseAgent):
         lower_wick   = min(curr.open, curr.close) - curr.low
         atr          = _atr(candles)
 
-        # Recent high / low (liquidity zones)
         recent = candles[-self.LOOKBACK:-1]
         r_highs = [c.high for c in recent if hasattr(c, "high") and np.isfinite(c.high)]
         r_lows  = [c.low  for c in recent if hasattr(c, "low")  and np.isfinite(c.low)]
@@ -386,26 +365,24 @@ class LiquidityTrapAgent(BaseAgent):
         zone_high = max(r_highs)
         zone_low  = min(r_lows)
 
-        # Bearish trap: wick punched through zone_high but closed back below
-        if (curr.high > zone_high                         # spiked above
-                and curr.close < zone_high               # closed back inside
+        if (curr.high > zone_high
+                and curr.close < zone_high
                 and body > 0
                 and _safe_div(upper_wick, max(body, 0.0001)) >= self.WICK_RATIO_MIN):
             direction  = "sell"
-            confidence = 0.78
-            win_prob   = 0.60
+            confidence = 0.72
+            win_prob   = 0.56
             reasoning  = (
                 f"Bearish liquidity trap: wick={upper_wick:.5f} spiked above {zone_high:.5f} "
                 f"but closed at {curr.close:.5f}. Smart money fade SELL."
             )
-        # Bullish trap: wick punched below zone_low but closed back above
         elif (curr.low < zone_low
                 and curr.close > zone_low
                 and body > 0
                 and _safe_div(lower_wick, max(body, 0.0001)) >= self.WICK_RATIO_MIN):
             direction  = "buy"
-            confidence = 0.78
-            win_prob   = 0.60
+            confidence = 0.72
+            win_prob   = 0.56
             reasoning  = (
                 f"Bullish liquidity trap: wick={lower_wick:.5f} spiked below {zone_low:.5f} "
                 f"but closed at {curr.close:.5f}. Smart money fade BUY."
@@ -436,7 +413,7 @@ class LiquidityTrapAgent(BaseAgent):
 
 
 # ============================================================
-# AGENT ORCHESTRATOR — selects best agent per regime
+# AGENT ORCHESTRATOR — with fallback mode
 # ============================================================
 
 @dataclass
@@ -451,11 +428,9 @@ class OrchestratorResult:
 
 class AgentOrchestrator:
     """
-    Runs all four agents and selects the best signal using:
-
-        score = confidence × regime_fit × (1 + expected_value)
-
-    Agent weights evolve over time via the LearningSystem feedback loop.
+    Runs all four agents and selects the best signal.
+    NEW: If no valid signal exists, forces the best regime-fit agent
+    to fire with minimum confidence (0.42) so the system doesn't stall.
     """
 
     def __init__(self):
@@ -465,20 +440,15 @@ class AgentOrchestrator:
             "BreakoutAgent":       BreakoutAgent(),
             "LiquidityTrapAgent":  LiquidityTrapAgent(),
         }
-        # Starting weights — updated by LearningSystem
         self.weights: Dict[str, float] = {name: 1.0 for name in self.agents}
 
     def update_weights(self, weights: Dict[str, float]):
-        """Called by LearningSystem after trade outcomes are recorded."""
         for name, w in weights.items():
             if name in self.weights:
-                self.weights[name] = max(0.1, min(w, 3.0))   # clamp to sensible range
+                self.weights[name] = max(0.1, min(w, 3.0))
         logger.info(f"Agent weights updated: {self.weights}")
 
     def run(self, candles: list, regime: str) -> Optional[OrchestratorResult]:
-        """
-        Evaluate all agents and return the best signal, or None if no valid signal found.
-        """
         all_signals: Dict[str, AgentSignal] = {}
 
         for name, agent in self.agents.items():
@@ -489,13 +459,41 @@ class AgentOrchestrator:
                 logger.warning(f"Agent {name} error: {e}")
                 all_signals[name] = agent._null_signal(f"Agent error: {e}")
 
-        # Filter valid signals only
+        # Filter valid signals
         valid = {name: sig for name, sig in all_signals.items() if sig.is_valid}
+
+        # FIX: Fallback mode — if no valid signals, force the best regime-fit agent
+        if not valid:
+            best_fallback = None
+            best_fit = -1.0
+            for name, sig in all_signals.items():
+                fit = sig.regime_fit
+                if fit > best_fit and sig.direction is not None:
+                    best_fit = fit
+                    best_fallback = (name, sig)
+
+            if best_fallback:
+                name, sig = best_fallback
+                # Force minimum valid confidence
+                forced_sig = AgentSignal(
+                    agent_name=sig.agent_name,
+                    direction=sig.direction,
+                    confidence=max(0.42, sig.confidence),
+                    win_probability=max(0.50, sig.win_probability),
+                    expected_value=sig.expected_value,
+                    stop_distance=max(sig.stop_distance, 0.0001),
+                    tp1_distance=max(sig.tp1_distance, 0.0001),
+                    tp2_distance=sig.tp2_distance,
+                    regime_fit=sig.regime_fit,
+                    reasoning=sig.reasoning + " [FORCED FALLBACK]",
+                    raw_features=sig.raw_features,
+                )
+                valid = {name: forced_sig}
+                logger.info(f"FALLBACK: Forced {name} signal in {regime} regime")
 
         if not valid:
             return None
 
-        # Score = confidence × regime_fit × (1 + ev) × weight
         def score(name: str, sig: AgentSignal) -> float:
             ev_factor = max(0.1, 1.0 + sig.expected_value)
             return sig.confidence * sig.regime_fit * ev_factor * self.weights.get(name, 1.0)
