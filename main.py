@@ -1,6 +1,6 @@
-"""PriceIQ Pro V5 — Main Entry Point"""
+"""PriceIQ Pro V5 — Main Entry Point (SAFE)"""
 import sys, os, asyncio, logging, httpx
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -9,6 +9,10 @@ logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# ── Signal cooldown tracker (pair → last signal datetime) ──
+_signal_cooldown: dict = {}
+SIGNAL_COOLDOWN_MIN = 60   # minimum minutes between signals on same pair
 
 async def trading_loop():
     scan_count = 0
@@ -47,20 +51,33 @@ async def trading_loop():
                                 signal_bar_index=scan_count,
                             )
                             if result and result.signal_fired:
+                                # ── SIGNAL COOLDOWN CHECK ──
+                                now = datetime.now(timezone.utc)
+                                last_time = _signal_cooldown.get(pair)
+                                if last_time and (now - last_time) < timedelta(minutes=SIGNAL_COOLDOWN_MIN):
+                                    mins_ago = int((now - last_time).total_seconds() / 60)
+                                    logger.info(f"Signal cooldown: {pair} blocked ({mins_ago}m ago)")
+                                    await asyncio.sleep(3)
+                                    continue
+                                _signal_cooldown[pair] = now
+                                # ───────────────────────────
+
                                 logger.info(f"SIGNAL: {pair} {result.direction} conf={result.confidence:.0%}")
                                 try:
                                     tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
                                     tg_chat = os.getenv("TELEGRAM_CHAT_ID")
                                     if tg_token and tg_chat:
+                                        # Format decimals: XAUUSD=2, forex=5
+                                        decimals = 2 if "XAU" in pair else 5
                                         msg = (
                                             f"🎯 <b>SIGNAL: {pair}</b>\n"
                                             f"Direction: {result.direction.upper()}\n"
                                             f"Confidence: {result.confidence:.0%}\n"
                                             f"Agent: {result.agent_used}\n"
                                             f"Regime: {result.regime}\n"
-                                            f"Entry: {result.fill_price:.5f}\n"
-                                            f"SL: {result.stop_loss:.5f}\n"
-                                            f"TP1: {result.take_profit_1:.5f}"
+                                            f"Entry: {result.fill_price:.{decimals}f}\n"
+                                            f"SL: {result.stop_loss:.{decimals}f}\n"
+                                            f"TP1: {result.take_profit_1:.{decimals}f}"
                                         )
                                         async with httpx.AsyncClient(timeout=10) as client:
                                             await client.post(

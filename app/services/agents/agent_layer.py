@@ -1,7 +1,14 @@
 """
-PriceIQ Pro — Multi-Agent Strategy Layer v1.1 (Relaxed)
+PriceIQ Pro — Multi-Agent Strategy Layer v1.2 (SAFE)
 
-Four competing strategy agents with relaxed thresholds for live trading.
+Four competing strategy agents with SAFETY GUARDS for live trading.
+
+SAFETY CHANGES from v1.1:
+    1. REMOVED fallback mode — if no valid signal, returns None (no trade)
+    2. ADDED trend filter to MeanReversionAgent — blocks counter-trend signals
+    3. ADDED regime-lock — only agents with regime_fit >= 0.5 can win
+    4. RAISED minimum confidence to 0.50 (was 0.40)
+    5. ADDED strong-trend detection to prevent catching falling knives
 """
 
 from __future__ import annotations
@@ -82,9 +89,10 @@ class AgentSignal:
 
     @property
     def is_valid(self) -> bool:
+        # SAFETY: raised minimum confidence to 0.50
         return (
             self.direction is not None
-            and self.confidence > 0.40
+            and self.confidence >= 0.50
             and self.stop_distance > 0
             and self.tp1_distance > 0
         )
@@ -118,13 +126,13 @@ class BaseAgent:
 
 
 # ============================================================
-# AGENT 1 — TREND AGENT (RELAXED)
+# AGENT 1 — TREND AGENT
 # ============================================================
 
 class TrendAgent(BaseAgent):
     """
     EMA 20/50 crossover + MACD momentum.
-    RELAXED: Removed RSI ceiling for trend continuation.
+    Best in trending regimes.
     """
     NAME = "TrendAgent"
     REGIME_FIT = {"trending": 1.0, "ranging": 0.2, "volatile": 0.4}
@@ -157,7 +165,6 @@ class TrendAgent(BaseAgent):
         atr = _atr(candles)
         rsi = _rsi(closes)
 
-        # FIX: Removed RSI < 65 filter for continuation. Trending markets naturally have elevated RSI.
         if bullish_cross or (bullish_trend and macd_hist > 0):
             direction   = "buy"
             confidence  = 0.80 if bullish_cross else 0.60
@@ -193,13 +200,13 @@ class TrendAgent(BaseAgent):
 
 
 # ============================================================
-# AGENT 2 — MEAN REVERSION AGENT (RELAXED)
+# AGENT 2 — MEAN REVERSION AGENT (WITH TREND FILTER)
 # ============================================================
 
 class MeanReversionAgent(BaseAgent):
     """
     RSI extremes + Bollinger Band touch.
-    RELAXED: Widened RSI thresholds from 32/68 to 40/60.
+    SAFETY: Blocks signals that fight strong trends.
     """
     NAME = "MeanReversionAgent"
     REGIME_FIT = {"trending": 0.2, "ranging": 1.0, "volatile": 0.3}
@@ -220,13 +227,29 @@ class MeanReversionAgent(BaseAgent):
         lower_bb = sma20 - 2 * std20
         curr     = closes[-1]
 
-        # FIX: Widened RSI thresholds. 40/60 captures more reversion setups.
+        # Compute trend filter (EMA 20 vs 50)
+        ema20 = _ema(closes, 20)
+        ema50 = _ema(closes, 50)
+        strong_downtrend = ema20[-1] < ema50[-1] * 0.995
+        strong_uptrend   = ema20[-1] > ema50[-1] * 1.005
+
         if rsi < 40 and curr <= lower_bb * 1.005:
+            # SAFETY: Do not buy in strong downtrend (catching falling knife)
+            if strong_downtrend:
+                return self._null_signal(
+                    f"MR buy blocked: strong downtrend EMA20={ema20[-1]:.2f} < EMA50={ema50[-1]:.2f}"
+                )
             direction  = "buy"
             confidence = 0.70 if rsi < 30 else 0.55
             win_prob   = 0.58 if rsi < 30 else 0.52
             reasoning  = f"RSI={rsi:.1f} oversold, price at lower BB ({lower_bb:.5f}). Mean reversion BUY."
+
         elif rsi > 60 and curr >= upper_bb * 0.995:
+            # SAFETY: Do not sell in strong uptrend
+            if strong_uptrend:
+                return self._null_signal(
+                    f"MR sell blocked: strong uptrend EMA20={ema20[-1]:.2f} > EMA50={ema50[-1]:.2f}"
+                )
             direction  = "sell"
             confidence = 0.70 if rsi > 70 else 0.55
             win_prob   = 0.58 if rsi > 70 else 0.52
@@ -258,13 +281,12 @@ class MeanReversionAgent(BaseAgent):
 
 
 # ============================================================
-# AGENT 3 — BREAKOUT AGENT (RELAXED)
+# AGENT 3 — BREAKOUT AGENT
 # ============================================================
 
 class BreakoutAgent(BaseAgent):
     """
     Volatility compression + range expansion.
-    RELAXED: ATR compression threshold 0.90 → 0.98.
     """
     NAME = "BreakoutAgent"
     REGIME_FIT = {"trending": 0.5, "ranging": 0.4, "volatile": 1.0}
@@ -290,7 +312,6 @@ class BreakoutAgent(BaseAgent):
         curr       = candles[-1].close
         atr        = _atr(candles)
 
-        # FIX: 0.90 was too strict. Normal ATR is ~100% of baseline. 0.98 allows normal compression.
         if compression > 0.98:
             return self._null_signal(f"No compression. ATR ratio={compression:.2f} (need < 0.98)")
 
@@ -329,17 +350,16 @@ class BreakoutAgent(BaseAgent):
 
 
 # ============================================================
-# AGENT 4 — LIQUIDITY TRAP AGENT (RELAXED)
+# AGENT 4 — LIQUIDITY TRAP AGENT
 # ============================================================
 
 class LiquidityTrapAgent(BaseAgent):
     """
     Detects fake breakouts (stop hunts / wick traps).
-    RELAXED: Wick ratio 2.5x → 1.8x.
     """
     NAME = "LiquidityTrapAgent"
     REGIME_FIT = {"trending": 0.3, "ranging": 0.8, "volatile": 0.7}
-    WICK_RATIO_MIN = 1.8   # FIX: 2.5 was too rare. 1.8 catches more traps.
+    WICK_RATIO_MIN = 1.8
     LOOKBACK = 20
 
     def evaluate(self, candles: list, regime: str) -> AgentSignal:
@@ -413,7 +433,7 @@ class LiquidityTrapAgent(BaseAgent):
 
 
 # ============================================================
-# AGENT ORCHESTRATOR — with fallback mode
+# AGENT ORCHESTRATOR — SAFE (no fallback, regime-locked)
 # ============================================================
 
 @dataclass
@@ -429,8 +449,11 @@ class OrchestratorResult:
 class AgentOrchestrator:
     """
     Runs all four agents and selects the best signal.
-    NEW: If no valid signal exists, forces the best regime-fit agent
-    to fire with minimum confidence (0.42) so the system doesn't stall.
+
+    SAFETY RULES:
+        1. No fallback — if no valid signal, returns None
+        2. Regime-lock — only agents with regime_fit >= 0.5 can win
+        3. Minimum confidence 0.50 enforced by AgentSignal.is_valid
     """
 
     def __init__(self):
@@ -462,36 +485,25 @@ class AgentOrchestrator:
         # Filter valid signals
         valid = {name: sig for name, sig in all_signals.items() if sig.is_valid}
 
-        # FIX: Fallback mode — if no valid signals, force the best regime-fit agent
         if not valid:
-            best_fallback = None
-            best_fit = -1.0
-            for name, sig in all_signals.items():
-                fit = sig.regime_fit
-                if fit > best_fit and sig.direction is not None:
-                    best_fit = fit
-                    best_fallback = (name, sig)
+            logger.info(f"No valid signals in {regime} regime — standing aside")
+            return None
 
-            if best_fallback:
-                name, sig = best_fallback
-                # Force minimum valid confidence
-                forced_sig = AgentSignal(
-                    agent_name=sig.agent_name,
-                    direction=sig.direction,
-                    confidence=max(0.42, sig.confidence),
-                    win_probability=max(0.50, sig.win_probability),
-                    expected_value=sig.expected_value,
-                    stop_distance=max(sig.stop_distance, 0.0001),
-                    tp1_distance=max(sig.tp1_distance, 0.0001),
-                    tp2_distance=sig.tp2_distance,
-                    regime_fit=sig.regime_fit,
-                    reasoning=sig.reasoning + " [FORCED FALLBACK]",
-                    raw_features=sig.raw_features,
-                )
-                valid = {name: forced_sig}
-                logger.info(f"FALLBACK: Forced {name} signal in {regime} regime")
+        # SAFETY: Regime-lock — only agents suited to current regime
+        regime_appropriate = {
+            name: sig for name, sig in valid.items()
+            if sig.regime_fit >= 0.5
+        }
 
-        if not valid:
+        if regime_appropriate:
+            valid = regime_appropriate
+            logger.info(f"Regime-locked to {regime}: candidates={list(valid.keys())}")
+        else:
+            logger.info(
+                f"No regime-appropriate signals in {regime} — "
+                f"valid agents had fits: "
+                + ", ".join(f"{n}={s.regime_fit:.2f}" for n, s in valid.items())
+            )
             return None
 
         def score(name: str, sig: AgentSignal) -> float:
