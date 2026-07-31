@@ -402,6 +402,18 @@ class V5OrchestratorFinal:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime, reason="No agent signal")
 
+        signal    = orch_result.selected_signal
+        agent     = orch_result.selected_agent
+
+        # ── DEFENSE-IN-DEPTH: Regime-fit gate ─────────────────
+        # Even if agent_layer.py regime-lock is bypassed, this catches it
+        if signal.regime_fit < 0.5:
+            reason = f"REGIME BLOCK: {agent} fit={signal.regime_fit:.2f} < 0.50 in {regime} regime"
+            logger.warning(f"[SAFETY] {pair}: {reason}")
+            await self.monitor.on_signal_blocked(pair, reason)
+            return self._no_signal(pair, timeframe, now_str, session_name,
+                                   regime=regime, reason=reason, conf_b=True)
+
         # Log agent confidence for debugging
         logger.info(
             f"[DEBUG] {pair}: best agent={orch_result.selected_agent} "
@@ -439,7 +451,8 @@ class V5OrchestratorFinal:
                                    ev_b=True)
 
         # ── Gate 7: Adaptive confidence threshold ─────────────
-        threshold = min(self.learning.get_confidence_threshold(pair), 0.60)
+        # SAFETY: hard floor at 0.50 — never trade below this
+        threshold = max(min(self.learning.get_confidence_threshold(pair), 0.60), 0.50)
         if adj_conf < threshold:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime,
