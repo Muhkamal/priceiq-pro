@@ -58,9 +58,9 @@ async def trading_loop():
                                             f"Confidence: {result.confidence:.0%}\n"
                                             f"Agent: {result.agent_used}\n"
                                             f"Regime: {result.regime}\n"
-                                            f"Entry: {result.fill_price}\n"
-                                            f"SL: {result.stop_loss}\n"
-                                            f"TP1: {result.take_profit_1}"
+                                            f"Entry: {result.fill_price:.5f}\n"
+                                            f"SL: {result.stop_loss:.5f}\n"
+                                            f"TP1: {result.take_profit_1:.5f}"
                                         )
                                         async with httpx.AsyncClient(timeout=10) as client:
                                             await client.post(
