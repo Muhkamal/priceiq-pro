@@ -4,18 +4,16 @@ from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# ── Gap manager import ────────────────────────────────────
 from app.services.risk.overnight_gap_manager import OvernightGapManager, HIGH_GAP_PAIRS
 
-# ── Signal cooldown tracker (pair → last signal datetime) ──
 _signal_cooldown: dict = {}
-SIGNAL_COOLDOWN_MIN = 60   # minimum minutes between signals on same pair
+SIGNAL_COOLDOWN_MIN = 60
 
 async def trading_loop():
     scan_count = 0
@@ -27,26 +25,23 @@ async def trading_loop():
         logger.error(f"DataFetcher init failed: {e}")
         return
 
-    # ── Gap manager init ────────────────────────────────────
     gap_mgr = OvernightGapManager(telegram=None)
     _thursday_closes: dict = {}
 
     watchlist = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD"]
 
     while True:
-        # ── WEEKEND MARKET SHUTDOWN ──
         now = datetime.now(timezone.utc)
-        if now.weekday() >= 5:  # Saturday=5, Sunday=6
+        if now.weekday() >= 5:
             days_until_monday = (7 - now.weekday()) % 7
             if days_until_monday == 0:
                 days_until_monday = 7
             monday = now + timedelta(days=days_until_monday)
             monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
             sleep_seconds = (monday - now).total_seconds()
-            logger.info(f"🛑 Weekend shutdown: {now.strftime('%A %H:%M UTC')} — sleeping {int(sleep_seconds/3600)}h until Monday 00:00 UTC")
+            logger.info(f"Weekend shutdown: {now.strftime('%A %H:%M UTC')} — sleeping {int(sleep_seconds/3600)}h until Monday 00:00 UTC")
             await asyncio.sleep(sleep_seconds)
             continue
-        # ──────────────────────────────
 
         try:
             from app.services.v5_orchestrator_final import get_v5
@@ -58,7 +53,6 @@ async def trading_loop():
                     try:
                         candles = await fetcher.get_candles(pair, "1h", limit=300)
                         if candles and len(candles) >= 55:
-                            # Remove zero-range candles (Yahoo Finance weekend artifacts)
                             candles = [c for c in candles
                                        if getattr(c, "high", 1) != getattr(c, "low", 0)]
                             if len(candles) < 55:
@@ -66,36 +60,25 @@ async def trading_loop():
                                 await asyncio.sleep(3)
                                 continue
 
-                            # ── FRIDAY GAP RISK WARNING ──
                             now = datetime.now(timezone.utc)
                             if gap_mgr.is_friday_close_window(now):
                                 if pair.upper() in HIGH_GAP_PAIRS:
-                                    logger.warning(
-                                        f"FRIDAY GAP RISK: {pair} is high-gap pair. "
-                                        f"Consider closing before weekend."
-                                    )
+                                    logger.warning(f"FRIDAY GAP RISK: {pair} is high-gap pair. Consider closing before weekend.")
                                 if candles:
-                                    last_close = getattr(candles[-1], 'close', None)
+                                    last_close = getattr(candles[-1], "close", None)
                                     if last_close:
                                         _thursday_closes[pair.upper()] = float(last_close)
-                            # ─────────────────────────────
 
-                            # ── SUNDAY GAP DETECTION ──
                             if gap_mgr.is_sunday_open_window(now):
                                 thu_close = _thursday_closes.get(pair.upper())
                                 if thu_close and candles:
-                                    sun_open = getattr(candles[0], 'open', None)
+                                    sun_open = getattr(candles[0], "open", None)
                                     if sun_open:
                                         gap = abs(float(sun_open) - thu_close)
                                         atr = gap_mgr._atr(candles)
                                         if atr > 0 and gap > atr * 1.5:
-                                            logger.warning(
-                                                f"SUNDAY GAP: {pair} gap={gap:.5f} "
-                                                f"({gap/atr:.1f}x ATR) vs Thu close {thu_close:.5f}"
-                                            )
-                            # ──────────────────────────
+                                            logger.warning(f"SUNDAY GAP: {pair} gap={gap:.5f} ({gap/atr:.1f}x ATR) vs Thu close {thu_close:.5f}")
 
-                            # ── SIGNAL COOLDOWN CHECK (BEFORE trade) ──
                             now = datetime.now(timezone.utc)
                             last_time = _signal_cooldown.get(pair)
                             if last_time and (now - last_time) < timedelta(minutes=SIGNAL_COOLDOWN_MIN):
@@ -103,7 +86,6 @@ async def trading_loop():
                                 logger.info(f"Signal cooldown: {pair} skipped ({mins_ago}m ago)")
                                 await asyncio.sleep(3)
                                 continue
-                            # ───────────────────────────────────────────
 
                             result = await v5.run_signal_cycle(
                                 candles=candles,
@@ -112,39 +94,27 @@ async def trading_loop():
                                 signal_bar_index=scan_count,
                             )
                             if result and result.signal_fired:
-                                # Record cooldown ONLY when signal actually fires
                                 _signal_cooldown[pair] = datetime.now(timezone.utc)
-
                                 logger.info(f"SIGNAL: {pair} {result.direction} conf={result.confidence:.0%}")
                                 try:
                                     tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
                                     tg_chat = os.getenv("TELEGRAM_CHAT_ID")
                                     if tg_token and tg_chat:
-                                        # Format decimals: XAUUSD=2, forex=5
                                         decimals = 2 if "XAU" in pair else 5
-                                        msg = (
-                                            f"🎯 <b>SIGNAL: {pair}</b>
-"
-                                            f"Direction: {result.direction.upper()}
-"
-                                            f"Confidence: {result.confidence:.0%}
-"
-                                            f"Agent: {result.agent_used}
-"
-                                            f"Regime: {result.regime}
-"
-                                            f"Entry: {result.fill_price:.{decimals}f}
-"
-                                            f"SL: {result.stop_loss:.{decimals}f}
-"
-                                            f"TP1: {result.take_profit_1:.{decimals}f}"
-                                        )
+                                        msg = f"""🎯 <b>SIGNAL: {pair}</b>
+Direction: {result.direction.upper()}
+Confidence: {result.confidence:.0%}
+Agent: {result.agent_used}
+Regime: {result.regime}
+Entry: {result.fill_price:.{decimals}f}
+SL: {result.stop_loss:.{decimals}f}
+TP1: {result.take_profit_1:.{decimals}f}"""
                                         async with httpx.AsyncClient(timeout=10) as client:
                                             await client.post(
                                                 f"https://api.telegram.org/bot{tg_token}/sendMessage",
                                                 json={"chat_id": tg_chat, "text": msg, "parse_mode": "HTML"}
                                             )
-                                        logger.info("Telegram alert sent ✅")
+                                        logger.info("Telegram alert sent")
                                     else:
                                         logger.warning("Telegram not configured (missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID)")
                                 except Exception as tg_e:
@@ -157,25 +127,23 @@ async def trading_loop():
                     except Exception as e:
                         logger.warning(f"Pair error ({pair}): {e}")
 
-                # ── FRIDAY CLOSE: full gap manager check ──
                 now = datetime.now(timezone.utc)
                 if gap_mgr.is_friday_close_window(now):
                     try:
-                        positions = getattr(v5, 'trade_manager', None)
-                        if positions and hasattr(positions, '_positions'):
+                        positions = getattr(v5, "trade_manager", None)
+                        if positions and hasattr(positions, "_positions"):
                             open_pos = positions._positions
                             current_prices = {}
                             for p in watchlist:
                                 try:
                                     c = await fetcher.get_candles(p, "1h", limit=1)
                                     if c:
-                                        current_prices[p.upper()] = getattr(c[-1], 'close', 0)
+                                        current_prices[p.upper()] = getattr(c[-1], "close", 0)
                                 except Exception:
                                     pass
                             await gap_mgr.on_friday_close(open_pos, current_prices)
                     except Exception as e:
                         logger.warning(f"Friday gap check failed: {e}")
-                # ──────────────────────────────────────────
 
                 v5._scan_count = scan_count
                 logger.info(f"Scan #{scan_count} complete")
@@ -186,7 +154,6 @@ async def trading_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("PriceIQ Pro V5 Starting...")
-
     try:
         from app.services.telegram_bot import telegram as telegram_bot
         from app.services.v5_orchestrator_final import init_v5
@@ -236,7 +203,6 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
 
 app = FastAPI(title="PriceIQ Pro V5", version="5.0.0", lifespan=lifespan)
-
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
