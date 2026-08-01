@@ -1,4 +1,4 @@
-"""PriceIQ Pro V5 — Main Entry Point (SAFE v2 — cooldown before trade)"""
+"""PriceIQ Pro V5 — Main Entry Point (SAFE v3 — weekend shutdown)"""
 import sys, os, asyncio, logging, httpx
 from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
@@ -27,6 +27,20 @@ async def trading_loop():
     watchlist = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD"]
 
     while True:
+        # ── WEEKEND MARKET SHUTDOWN ──
+        now = datetime.now(timezone.utc)
+        if now.weekday() >= 5:  # Saturday=5, Sunday=6
+            days_until_monday = (7 - now.weekday()) % 7
+            if days_until_monday == 0:
+                days_until_monday = 7
+            monday = now + timedelta(days=days_until_monday)
+            monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
+            sleep_seconds = (monday - now).total_seconds()
+            logger.info(f"🛑 Weekend shutdown: {now.strftime('%A %H:%M UTC')} — sleeping {int(sleep_seconds/3600)}h until Monday 00:00 UTC")
+            await asyncio.sleep(sleep_seconds)
+            continue
+        # ──────────────────────────────
+
         try:
             from app.services.v5_orchestrator_final import get_v5
             v5 = get_v5()
