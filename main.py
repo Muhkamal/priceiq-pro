@@ -1,4 +1,4 @@
-"""PriceIQ Pro V5 — Main Entry Point (SAFE v4 — gap manager wired)"""
+"""PriceIQ Pro V5 -- Main Entry Point (SAFE v5 -- bulletproof strings)"""
 import sys, os, asyncio, logging, httpx
 from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
@@ -39,7 +39,7 @@ async def trading_loop():
             monday = now + timedelta(days=days_until_monday)
             monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
             sleep_seconds = (monday - now).total_seconds()
-            logger.info(f"Weekend shutdown: {now.strftime('%A %H:%M UTC')} — sleeping {int(sleep_seconds/3600)}h until Monday 00:00 UTC")
+            logger.info(f"Weekend shutdown: {now.strftime('%A %H:%M UTC')} -- sleeping {int(sleep_seconds/3600)}h until Monday 00:00 UTC")
             await asyncio.sleep(sleep_seconds)
             continue
 
@@ -101,14 +101,16 @@ async def trading_loop():
                                     tg_chat = os.getenv("TELEGRAM_CHAT_ID")
                                     if tg_token and tg_chat:
                                         decimals = 2 if "XAU" in pair else 5
-                                        msg = f"""🎯 <b>SIGNAL: {pair}</b>
-Direction: {result.direction.upper()}
-Confidence: {result.confidence:.0%}
-Agent: {result.agent_used}
-Regime: {result.regime}
-Entry: {result.fill_price:.{decimals}f}
-SL: {result.stop_loss:.{decimals}f}
-TP1: {result.take_profit_1:.{decimals}f}"""
+                                        msg = "\n".join([
+                                            f"SIGNAL: {pair}",
+                                            f"Direction: {result.direction.upper()}",
+                                            f"Confidence: {result.confidence:.0%}",
+                                            f"Agent: {result.agent_used}",
+                                            f"Regime: {result.regime}",
+                                            f"Entry: {result.fill_price:.{decimals}f}",
+                                            f"SL: {result.stop_loss:.{decimals}f}",
+                                            f"TP1: {result.take_profit_1:.{decimals}f}",
+                                        ])
                                         async with httpx.AsyncClient(timeout=10) as client:
                                             await client.post(
                                                 f"https://api.telegram.org/bot{tg_token}/sendMessage",
@@ -198,7 +200,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Broker webhook V5: {e}")
 
-    logger.info("PriceIQ Pro V5 — Fully operational")
+    logger.info("PriceIQ Pro V5 -- Fully operational")
     yield
     logger.info("Shutting down...")
 
