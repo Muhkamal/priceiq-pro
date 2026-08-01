@@ -170,12 +170,7 @@ class AdaptiveLearner:
             self._agent_weights[name] = max(
                 _MIN_WEIGHT, self._agent_weights[name] - _LOSS_PENALTY
             )
-        # Decay all weights slightly each update
-        for k in self._agent_weights:
-            self._agent_weights[k] = max(
-                _MIN_WEIGHT,
-                self._agent_weights[k] * (1 - _WEIGHT_DECAY)
-            )
+       
 
         # ── Pair threshold update ────────────────────────────
         pair_records = [r for r in all_records if r.pair.upper() == outcome.pair.upper()]

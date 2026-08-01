@@ -1,25 +1,10 @@
 """
-PriceIQ Pro — VaR Engine v2.0
+PriceIQ Pro — VaR Engine v2.1 (FIXED)
 
-Fixes from assessment review:
-    ✅ Daily return aggregator: aggregates per-trade PnL into
-       actual daily returns before VaR computation
-       (previous version accepted hourly/per-trade returns as daily — wrong)
-    ✅ MAX_OPEN_POSITIONS from settings, not hardcoded 6
-    ✅ VaR confidence level from settings
-    ✅ Hourly-to-daily scaling when insufficient daily history
-    ✅ Proper annualisation for Sharpe computation
-
-VaR methods:
-    Historical:   percentile of actual daily return distribution
-    Parametric:   normal distribution N(μ, σ²) assumption
-    Monte Carlo:  10K simulated 1-day paths from fitted distribution
-
-All three require DAILY returns (end-of-day balance snapshots).
-If daily data is insufficient, falls back to trade-level returns
-with proper scaling (√trading_days_per_year normalisation).
+Fixes:
+    1. _compute_portfolio_heat now uses pair-aware pip values (was 10× wrong)
+    2. add_trade_pnl updates balance BEFORE passing to aggregator (was stale)
 """
-
 from __future__ import annotations
 
 import logging
@@ -32,7 +17,6 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Defaults (overridden by v5_settings)
 MAX_PORTFOLIO_HEAT   = 0.06
 CRITICAL_HEAT        = 0.10
 VAR_HISTORY_DAYS     = 252
@@ -55,16 +39,10 @@ class VaRReport:
     warnings:             List[str]
     open_positions:       int
     daily_returns_used:   int
-    data_source:          str   # "daily" | "trade_scaled" | "insufficient"
+    data_source:          str
 
 
 class DailyReturnAggregator:
-    """
-    Aggregates per-trade PnL into proper daily returns.
-    Call record_trade_pnl() after every trade close.
-    Call end_of_day() at midnight UTC to snapshot the day's return.
-    """
-
     def __init__(self, starting_balance: float):
         self._starting_balance = starting_balance
         self._current_balance  = starting_balance
@@ -75,32 +53,20 @@ class DailyReturnAggregator:
         self._last_day:        Optional[str] = None
 
     def record_trade_pnl(self, pnl_usd: float, balance_after: float):
-        """
-        Call after every trade close.
-        Auto-detects day boundary and snapshots daily return.
-        """
         today = date.today().isoformat()
-
-        # Day boundary: snapshot previous day's return
         if self._last_day and self._last_day != today:
             self._snapshot_day()
-
         self._today_pnl       += pnl_usd
         self._current_balance  = balance_after
         self._trade_pnls.append(pnl_usd)
         self._last_day         = today
 
     def end_of_day(self, final_balance: float):
-        """
-        Call at midnight UTC from scheduler.
-        Snapshots the day's return explicitly.
-        """
         self._current_balance = final_balance
         self._snapshot_day()
         self._day_open_balance = final_balance
 
     def _snapshot_day(self):
-        """Compute and store today's percentage return."""
         if self._day_open_balance <= 0:
             return
         daily_pct = (self._current_balance - self._day_open_balance) / self._day_open_balance
@@ -113,7 +79,6 @@ class DailyReturnAggregator:
         return list(self._daily_returns)
 
     def get_trade_returns(self) -> List[float]:
-        """Per-trade returns as fraction of balance (fallback when < MIN_HISTORY_DAYS)."""
         if not self._trade_pnls:
             return []
         bal = self._starting_balance
@@ -132,23 +97,18 @@ class DailyReturnAggregator:
 
 
 class VaREngine:
-    """
-    Multi-method Value at Risk engine v2.0.
-    Uses DailyReturnAggregator for correct daily return computation.
-    """
-
     def __init__(
         self,
         account_balance:   float = 10_000.0,
         max_heat_pct:      float = MAX_PORTFOLIO_HEAT,
         critical_heat_pct: float = CRITICAL_HEAT,
-        max_open_positions: int  = 6,      # from v5_settings.MAX_OPEN_POSITIONS
+        max_open_positions: int  = 6,
         n_mc_paths:        int   = 10_000,
     ):
         self.account_balance    = account_balance
         self.max_heat_pct       = max_heat_pct
         self.critical_heat_pct  = critical_heat_pct
-        self.max_open_positions = max_open_positions   # ✅ configurable, not hardcoded
+        self.max_open_positions = max_open_positions
         self.n_mc_paths         = n_mc_paths
         self.aggregator         = DailyReturnAggregator(account_balance)
 
@@ -158,39 +118,29 @@ class VaREngine:
 
     def add_trade_pnl(self, pnl_usd: float):
         """Record per-trade PnL. Aggregator handles daily bucketing."""
+        # FIX: update balance first so aggregator gets the NEW balance
+        self.account_balance += pnl_usd
         self.aggregator.record_trade_pnl(pnl_usd, self.account_balance)
 
     def add_daily_return(self, pct_return: float):
-        """Direct daily return input (e.g. from equity curve tracker end-of-day)."""
         if np.isfinite(pct_return):
             self.aggregator._daily_returns.append(pct_return)
 
     def end_of_day(self, final_balance: float):
-        """Call at midnight UTC to snapshot daily return."""
         self.aggregator.end_of_day(final_balance)
 
-    def compute(
-        self,
-        open_positions: Dict,
-        confidence: float = 0.95,
-    ) -> VaRReport:
-        """Full VaR + portfolio heat report."""
+    def compute(self, open_positions: Dict, confidence: float = 0.95) -> VaRReport:
         now   = datetime.now(timezone.utc).isoformat()
         warns = []
         bal   = self.account_balance
 
-        # ── Select return series ──────────────────────────────
         daily_returns = self.aggregator.get_daily_returns()
         n_daily       = len(daily_returns)
         data_source   = "daily"
 
         if n_daily < MIN_HISTORY_DAYS:
-            # Fall back to trade-level returns with daily scaling
             trade_returns = self.aggregator.get_trade_returns()
             if len(trade_returns) >= 5:
-                # Scale trade returns to approximate daily:
-                # Assuming ~2 trades/day average, daily variance ≈ 2× trade variance
-                # More precisely: aggregate N trades per day
                 daily_returns = self._scale_trade_to_daily(trade_returns)
                 data_source   = "trade_scaled"
                 warns.append(
@@ -204,7 +154,6 @@ class VaREngine:
         returns  = list(daily_returns)
         n_hist   = len(returns)
 
-        # ── Portfolio heat ────────────────────────────────────
         heat_usd = self._compute_portfolio_heat(open_positions)
         heat_pct = heat_usd / max(bal, 1.0)
 
@@ -213,13 +162,11 @@ class VaREngine:
         elif heat_pct >= self.max_heat_pct:
             warns.append(f"WARNING heat {heat_pct:.1%} ≥ {self.max_heat_pct:.0%}")
 
-        # ── Historical VaR ────────────────────────────────────
         var_hist = None
         if n_hist >= MIN_HISTORY_DAYS:
             pctile   = np.percentile(returns, (1 - confidence) * 100)
             var_hist = abs(pctile * bal)
 
-        # ── Parametric VaR ────────────────────────────────────
         var_param = None
         if n_hist >= MIN_HISTORY_DAYS:
             mu        = np.mean(returns)
@@ -227,7 +174,6 @@ class VaREngine:
             z         = self._z_score(confidence)
             var_param = max(0.0, -(mu - z * sigma) * bal)
 
-        # ── Monte Carlo VaR ───────────────────────────────────
         var_mc = None
         if n_hist >= MIN_HISTORY_DAYS:
             mu       = np.mean(returns)
@@ -235,8 +181,6 @@ class VaREngine:
             sim      = np.random.normal(mu, sigma, self.n_mc_paths)
             var_mc   = abs(np.percentile(sim, (1 - confidence) * 100)) * bal
 
-        # ── Safety assessment ─────────────────────────────────
-        # ✅ Uses configurable MAX_OPEN_POSITIONS, not hardcoded 6
         safe = (
             heat_pct < self.critical_heat_pct
             and len(open_positions) < self.max_open_positions
@@ -289,32 +233,35 @@ class VaREngine:
         return results
 
     def _scale_trade_to_daily(self, trade_returns: List[float]) -> List[float]:
-        """
-        Scale per-trade returns to approximate daily returns.
-        Groups trades by ~2 per day and sums within groups.
-        This preserves the distribution shape while correct scaling.
-        """
         if not trade_returns:
             return []
-        # Assume trades_per_day = total_trades / trading_days (estimate 2)
         trades_per_day = max(1, len(trade_returns) // max(self.aggregator.n_daily(), 1))
-        trades_per_day = min(trades_per_day, 5)   # cap at 5
-
+        trades_per_day = min(trades_per_day, 5)
         daily = []
         for i in range(0, len(trade_returns), trades_per_day):
             group = trade_returns[i: i + trades_per_day]
             daily.append(sum(group))
         return daily
 
+    # ── FIX: pair-aware portfolio heat ─────────────────────────
     def _compute_portfolio_heat(self, open_positions: Dict) -> float:
         heat = 0.0
         for pair, pos in open_positions.items():
-            entry    = getattr(pos, "entry",     getattr(pos, "entry_price", 0))
-            stop     = getattr(pos, "stop_loss", getattr(pos, "current_sl",  0))
-            lots     = getattr(pos, "lots",      getattr(pos, "lots_remaining", 0.01))
-            sl_dist  = abs(entry - stop)
-            heat    += sl_dist * lots * 100_000 / 10
+            entry   = getattr(pos, "entry",     getattr(pos, "entry_price", 0))
+            stop    = getattr(pos, "stop_loss", getattr(pos, "current_sl",  0))
+            lots    = getattr(pos, "lots",      getattr(pos, "lots_remaining", 0.01))
+            sl_dist = abs(entry - stop)
+            pip_val = self._pip_value(pair)
+            heat   += sl_dist * lots * pip_val
         return heat
+
+    def _pip_value(self, pair: str) -> float:
+        pair = pair.upper()
+        if "XAU" in pair or "XAG" in pair:
+            return 100.0
+        if "JPY" in pair:
+            return 1000.0
+        return 100_000.0
 
     def _z_score(self, confidence: float) -> float:
         return {0.90: 1.282, 0.95: 1.645, 0.99: 2.326}.get(confidence, 1.645)

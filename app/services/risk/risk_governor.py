@@ -1,29 +1,13 @@
 """
-PriceIQ Pro — Portfolio Risk Governor v1.0
+PriceIQ Pro — Portfolio Risk Governor v1.1 (FIXED)
+
+Fixes:
+    1. ADDED per-trade risk limit enforcement (was declared but never checked)
+    2. FIXED gold exposure calculation (was 1000× too high for XAUUSD)
+    3. ADDED pair-aware pip value helper
 
 This is NOT a per-trade risk calculator.
 This is a GOVERNOR — it has veto power over all trade decisions.
-
-It tracks:
-    - Account drawdown (peak-to-trough)
-    - Open exposure per pair and total
-    - Correlation risk (don't stack correlated positions)
-    - Consecutive losses (tilt detection)
-    - Tail risk (maximum adverse excursion across portfolio)
-
-Usage:
-    governor = RiskGovernor(starting_balance=10_000.0)
-
-    # Before executing any trade:
-    decision = governor.evaluate(proposed_signal)
-    if decision.allowed:
-        execute_trade(...)
-        governor.open_position(position)
-    else:
-        log(decision.reason)
-
-    # After trade closes:
-    governor.close_position(pair, pnl)
 """
 
 from __future__ import annotations
@@ -38,7 +22,6 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # ── Correlation matrix (approximate, static) ────────────────
-# Pairs with |correlation| > CORR_THRESHOLD are treated as same-direction exposure
 PAIR_CORRELATIONS: Dict[str, List[str]] = {
     "EURUSD": ["GBPUSD", "AUDUSD", "NZDUSD", "EURCAD"],
     "GBPUSD": ["EURUSD", "AUDUSD", "GBPCAD", "GBPJPY"],
@@ -48,13 +31,13 @@ PAIR_CORRELATIONS: Dict[str, List[str]] = {
     "USDCAD": ["CADJPY"],
 }
 
-CORR_THRESHOLD = 0.70   # treat as correlated if pair in correlation list
+CORR_THRESHOLD = 0.70
 
 
 @dataclass
 class OpenPosition:
     pair:       str
-    direction:  str       # "buy" | "sell"
+    direction:  str
     lots:       float
     entry:      float
     stop_loss:  float
@@ -67,35 +50,25 @@ class OpenPosition:
 class RiskDecision:
     allowed:        bool
     reason:         str
-    adjusted_lots:  float   # may be reduced from proposed
-    risk_score:     float   # 0.0 (safe) → 1.0 (at limit)
+    adjusted_lots:  float
+    risk_score:     float
 
 
 class RiskGovernor:
     """
     Portfolio-level risk governor with hard stops.
-
-    Hard limits (BLOCK trade):
-        - Drawdown > max_drawdown_pct
-        - Total open exposure > max_total_exposure_pct of balance
-        - > max_correlated_positions in same correlation group
-        - > max_consecutive_losses in a row
-
-    Soft limits (REDUCE size):
-        - Drawdown > soft_drawdown_pct → reduce size 50%
-        - Consecutive losses ≥ soft_loss_count → reduce size 50%
     """
 
     def __init__(
         self,
         starting_balance: float = 10_000.0,
-        max_drawdown_pct:      float = 0.10,   # 10% drawdown → stop all
-        soft_drawdown_pct:     float = 0.06,   # 6% → reduce size
-        max_risk_per_trade:    float = 0.02,   # 2% per trade
-        max_total_exposure:    float = 0.08,   # 8% total open risk
-        max_correlated_pos:    int   = 2,      # max same-corr-group positions
-        max_consecutive_losses: int  = 4,      # 4 losses in a row → pause
-        soft_loss_count:        int  = 3,      # 3 losses → reduce size
+        max_drawdown_pct:      float = 0.10,
+        soft_drawdown_pct:     float = 0.06,
+        max_risk_per_trade:    float = 0.02,
+        max_total_exposure:    float = 0.08,
+        max_correlated_pos:    int   = 2,
+        max_consecutive_losses: int  = 4,
+        soft_loss_count:        int  = 3,
     ):
         self.starting_balance       = starting_balance
         self.current_balance        = starting_balance
@@ -108,7 +81,7 @@ class RiskGovernor:
         self.max_consecutive_losses = max_consecutive_losses
         self.soft_loss_count        = soft_loss_count
 
-        self._open_positions: Dict[str, OpenPosition] = {}   # pair → position
+        self._open_positions: Dict[str, OpenPosition] = {}
         self._consecutive_losses: int = 0
         self._trade_history: List[Dict] = []
 
@@ -116,22 +89,21 @@ class RiskGovernor:
 
     @property
     def drawdown(self) -> float:
-        """Current drawdown as fraction of peak balance."""
         return max(0.0, (self.peak_balance - self.current_balance) / self.peak_balance)
 
     @property
     def total_open_exposure(self) -> float:
-        """Total open risk as fraction of current balance (sum of SL distances × lots)."""
+        """Total open risk as fraction of current balance. FIXED: pair-aware pip values."""
         total_risk = 0.0
         for pos in self._open_positions.values():
             sl_dist = abs(pos.entry - pos.stop_loss)
-            pip_risk = sl_dist * pos.lots * 100_000   # approx USD risk
-            total_risk += pip_risk
+            pip_val = self._pip_value(pos.pair)
+            trade_risk = sl_dist * pos.lots * pip_val
+            total_risk += trade_risk
         return total_risk / max(self.current_balance, 1.0)
 
     @property
     def risk_score(self) -> float:
-        """Composite risk score 0–1. Higher = more dangerous."""
         dd_score   = min(1.0, self.drawdown / self.max_drawdown_pct)
         exp_score  = min(1.0, self.total_open_exposure / self.max_total_exposure)
         loss_score = min(1.0, self._consecutive_losses / self.max_consecutive_losses)
@@ -145,10 +117,8 @@ class RiskGovernor:
         stop_distance: float,
         entry_price: float,
     ) -> RiskDecision:
-        """
-        Evaluate whether a proposed trade is allowed.
-        Returns RiskDecision with allowed flag and potentially adjusted lot size.
-        """
+        """Evaluate whether a proposed trade is allowed."""
+
         # ── Hard gate 1: drawdown ────────────────────────────
         if self.drawdown >= self.max_drawdown_pct:
             return RiskDecision(
@@ -186,6 +156,18 @@ class RiskGovernor:
                 risk_score=self.risk_score,
             )
 
+        # ── Hard gate 5: per-trade risk limit (NEW) ──────────
+        pip_val = self._pip_value(pair)
+        trade_risk_usd = stop_distance * proposed_lots * pip_val
+        trade_risk_pct = trade_risk_usd / max(self.current_balance, 1.0)
+        if trade_risk_pct > self.max_risk_per_trade:
+            return RiskDecision(
+                allowed=False,
+                reason=f"HARD STOP: trade risk {trade_risk_pct:.2%} > {self.max_risk_per_trade:.0%} limit ({pair} {proposed_lots}L SL={stop_distance})",
+                adjusted_lots=0.0,
+                risk_score=self.risk_score,
+            )
+
         # ── Soft adjustment: soft drawdown ───────────────────
         size_multiplier = 1.0
         reasons = []
@@ -209,7 +191,6 @@ class RiskGovernor:
         )
 
     def open_position(self, position: OpenPosition):
-        """Register an opened position."""
         self._open_positions[position.pair.upper()] = position
         logger.info(
             f"RiskGovernor: opened {position.pair} {position.direction} "
@@ -217,10 +198,6 @@ class RiskGovernor:
         )
 
     def close_position(self, pair: str, realised_pnl: float):
-        """
-        Register a closed position and update balance / loss streak.
-        realised_pnl in account currency (USD).
-        """
         pair = pair.upper()
         self._open_positions.pop(pair, None)
         self.current_balance += realised_pnl
@@ -231,7 +208,7 @@ class RiskGovernor:
         if realised_pnl < 0:
             self._consecutive_losses += 1
         else:
-            self._consecutive_losses = 0   # reset on any win / breakeven
+            self._consecutive_losses = 0
 
         self._trade_history.append({
             "pair": pair,
@@ -248,15 +225,14 @@ class RiskGovernor:
         )
 
     def update_unrealised(self, pair: str, current_price: float):
-        """Update unrealised PnL for open position."""
         pos = self._open_positions.get(pair.upper())
         if not pos:
             return
         pnl_pts = (current_price - pos.entry) if pos.direction == "buy" else (pos.entry - current_price)
-        pos.unrealised_pnl = pnl_pts * pos.lots * 100_000   # approx USD
+        pip_val = self._pip_value(pos.pair)
+        pos.unrealised_pnl = pnl_pts * pos.lots * pip_val
 
     def reset_loss_streak(self):
-        """Manually reset consecutive loss counter (e.g., after review)."""
         logger.info(f"RiskGovernor: loss streak manually reset from {self._consecutive_losses}")
         self._consecutive_losses = 0
 
@@ -277,12 +253,26 @@ class RiskGovernor:
     # ── Helpers ──────────────────────────────────────────────
 
     def _count_correlated_positions(self, pair: str, direction: str) -> int:
-        """Count open positions in the same correlation group + same direction."""
         correlated = PAIR_CORRELATIONS.get(pair.upper(), [])
         count = 0
         for open_pair, pos in self._open_positions.items():
             if open_pair == pair.upper():
-                count += 1   # same pair already open
+                count += 1
             elif open_pair in correlated and pos.direction == direction:
                 count += 1
         return count
+
+    def _pip_value(self, pair: str) -> float:
+        """
+        Pair-aware pip value multiplier.
+        
+        XAUUSD:  1 lot = 100 oz, $1 per $1 move  → 100
+        JPY pairs: pip = 0.01                      → 1000
+        Standard: pip = 0.0001                     → 100_000
+        """
+        pair = pair.upper()
+        if "XAU" in pair or "XAG" in pair:
+            return 100.0
+        if "JPY" in pair:
+            return 1000.0
+        return 100_000.0

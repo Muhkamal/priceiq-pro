@@ -1,4 +1,4 @@
-"""PriceIQ Pro V5 — Main Entry Point (SAFE v3 — weekend shutdown)"""
+"""PriceIQ Pro V5 — Main Entry Point (SAFE v4 — gap manager wired)"""
 import sys, os, asyncio, logging, httpx
 from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
@@ -9,6 +9,9 @@ logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# ── Gap manager import ────────────────────────────────────
+from app.services.risk.overnight_gap_manager import OvernightGapManager, HIGH_GAP_PAIRS
 
 # ── Signal cooldown tracker (pair → last signal datetime) ──
 _signal_cooldown: dict = {}
@@ -23,6 +26,10 @@ async def trading_loop():
     except Exception as e:
         logger.error(f"DataFetcher init failed: {e}")
         return
+
+    # ── Gap manager init ────────────────────────────────────
+    gap_mgr = OvernightGapManager(telegram=None)
+    _thursday_closes: dict = {}
 
     watchlist = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD"]
 
@@ -59,6 +66,35 @@ async def trading_loop():
                                 await asyncio.sleep(3)
                                 continue
 
+                            # ── FRIDAY GAP RISK WARNING ──
+                            now = datetime.now(timezone.utc)
+                            if gap_mgr.is_friday_close_window(now):
+                                if pair.upper() in HIGH_GAP_PAIRS:
+                                    logger.warning(
+                                        f"FRIDAY GAP RISK: {pair} is high-gap pair. "
+                                        f"Consider closing before weekend."
+                                    )
+                                if candles:
+                                    last_close = getattr(candles[-1], 'close', None)
+                                    if last_close:
+                                        _thursday_closes[pair.upper()] = float(last_close)
+                            # ─────────────────────────────
+
+                            # ── SUNDAY GAP DETECTION ──
+                            if gap_mgr.is_sunday_open_window(now):
+                                thu_close = _thursday_closes.get(pair.upper())
+                                if thu_close and candles:
+                                    sun_open = getattr(candles[0], 'open', None)
+                                    if sun_open:
+                                        gap = abs(float(sun_open) - thu_close)
+                                        atr = gap_mgr._atr(candles)
+                                        if atr > 0 and gap > atr * 1.5:
+                                            logger.warning(
+                                                f"SUNDAY GAP: {pair} gap={gap:.5f} "
+                                                f"({gap/atr:.1f}x ATR) vs Thu close {thu_close:.5f}"
+                                            )
+                            # ──────────────────────────
+
                             # ── SIGNAL COOLDOWN CHECK (BEFORE trade) ──
                             now = datetime.now(timezone.utc)
                             last_time = _signal_cooldown.get(pair)
@@ -87,13 +123,20 @@ async def trading_loop():
                                         # Format decimals: XAUUSD=2, forex=5
                                         decimals = 2 if "XAU" in pair else 5
                                         msg = (
-                                            f"🎯 <b>SIGNAL: {pair}</b>\n"
-                                            f"Direction: {result.direction.upper()}\n"
-                                            f"Confidence: {result.confidence:.0%}\n"
-                                            f"Agent: {result.agent_used}\n"
-                                            f"Regime: {result.regime}\n"
-                                            f"Entry: {result.fill_price:.{decimals}f}\n"
-                                            f"SL: {result.stop_loss:.{decimals}f}\n"
+                                            f"🎯 <b>SIGNAL: {pair}</b>
+"
+                                            f"Direction: {result.direction.upper()}
+"
+                                            f"Confidence: {result.confidence:.0%}
+"
+                                            f"Agent: {result.agent_used}
+"
+                                            f"Regime: {result.regime}
+"
+                                            f"Entry: {result.fill_price:.{decimals}f}
+"
+                                            f"SL: {result.stop_loss:.{decimals}f}
+"
                                             f"TP1: {result.take_profit_1:.{decimals}f}"
                                         )
                                         async with httpx.AsyncClient(timeout=10) as client:
@@ -113,6 +156,27 @@ async def trading_loop():
                         await asyncio.sleep(3)
                     except Exception as e:
                         logger.warning(f"Pair error ({pair}): {e}")
+
+                # ── FRIDAY CLOSE: full gap manager check ──
+                now = datetime.now(timezone.utc)
+                if gap_mgr.is_friday_close_window(now):
+                    try:
+                        positions = getattr(v5, 'trade_manager', None)
+                        if positions and hasattr(positions, '_positions'):
+                            open_pos = positions._positions
+                            current_prices = {}
+                            for p in watchlist:
+                                try:
+                                    c = await fetcher.get_candles(p, "1h", limit=1)
+                                    if c:
+                                        current_prices[p.upper()] = getattr(c[-1], 'close', 0)
+                                except Exception:
+                                    pass
+                            await gap_mgr.on_friday_close(open_pos, current_prices)
+                    except Exception as e:
+                        logger.warning(f"Friday gap check failed: {e}")
+                # ──────────────────────────────────────────
+
                 v5._scan_count = scan_count
                 logger.info(f"Scan #{scan_count} complete")
         except Exception as e:

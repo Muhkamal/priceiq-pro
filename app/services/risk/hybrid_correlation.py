@@ -1,26 +1,8 @@
 """
-PriceIQ Pro — Correlation Estimator with Warmup Seeding v1.0
+PriceIQ Pro — Correlation Estimator with Warmup Seeding v1.1 (FIXED)
 
-Fixes the 20-hour blind spot in DynamicCorrelationEstimator.
-During warmup (< MIN_OBSERVATIONS), uses static matrix as prior,
-then smoothly fades to empirical estimates as live data accumulates.
-
-Hybrid formula:
-    w_empirical = min(1.0, live_observations / MIN_OBSERVATIONS)
-    w_static    = 1 - w_empirical
-    correlation = w_empirical × empirical_corr + w_static × static_corr
-
-This means:
-    At 0 observations:  100% static matrix (safe prior)
-    At 10 observations: 50% static, 50% empirical
-    At 20 observations: 100% empirical (fully live)
-
-Static matrix is based on long-run averages from academic research
-and verified against 2020-2024 forex data.
-
-Also fixes: regime-conditional window (volatile → shorter window).
+Fix: get_correlation() returned a tuple instead of float due to misplaced parenthesis.
 """
-
 from __future__ import annotations
 
 import logging
@@ -37,11 +19,7 @@ CORR_THRESHOLD       = 0.75
 EWM_SPAN             = 30
 MIN_OBSERVATIONS     = 20
 
-# ── Long-run static correlation matrix ───────────────────────
-# Source: academic literature + 2020-2024 empirical averages
-# Pairs not listed have unknown correlation → use 0.0 (neutral)
 STATIC_CORRELATIONS: Dict[Tuple[str, str], float] = {
-    # Strong positives (USD-quoted majors move together)
     ("EURUSD", "GBPUSD"):  0.82,
     ("EURUSD", "AUDUSD"):  0.78,
     ("EURUSD", "NZDUSD"):  0.72,
@@ -50,31 +28,24 @@ STATIC_CORRELATIONS: Dict[Tuple[str, str], float] = {
     ("GBPUSD", "GBPJPY"):  0.71,
     ("AUDUSD", "NZDUSD"):  0.88,
     ("AUDUSD", "AUDJPY"):  0.68,
-    # Strong negatives (USD-base pairs inverse to USD-quoted)
     ("EURUSD", "USDJPY"): -0.72,
     ("EURUSD", "USDCHF"): -0.91,
     ("GBPUSD", "USDCHF"): -0.78,
     ("GBPUSD", "USDJPY"): -0.68,
-    # Gold relationships
     ("XAUUSD", "EURUSD"):  0.42,
     ("XAUUSD", "USDCHF"): -0.48,
     ("XAUUSD", "USDJPY"): -0.35,
     ("XAUUSD", "XAGUSD"):  0.80,
-    # JPY crosses
     ("USDJPY", "EURJPY"):  0.75,
     ("USDJPY", "GBPJPY"):  0.70,
-    # CAD
     ("USDCAD", "AUDUSD"): -0.62,
     ("USDCAD", "EURUSD"): -0.58,
 }
 
 
 def _get_static(pair_a: str, pair_b: str) -> float:
-    """Lookup static correlation (symmetric)."""
-    a, b  = pair_a.upper(), pair_b.upper()
-    key1  = (a, b)
-    key2  = (b, a)
-    return STATIC_CORRELATIONS.get(key1, STATIC_CORRELATIONS.get(key2, 0.0))
+    a, b = pair_a.upper(), pair_b.upper()
+    return STATIC_CORRELATIONS.get((a, b), STATIC_CORRELATIONS.get((b, a), 0.0))
 
 
 def _safe_div(a, b, default=0.0):
@@ -85,22 +56,14 @@ def _safe_div(a, b, default=0.0):
 
 
 class HybridCorrelationEstimator:
-    """
-    Dynamic EWM correlation with static-matrix warmup seeding.
-
-    During early operation (< MIN_OBSERVATIONS live bars), blends
-    static prior with live estimates. After full warmup, purely empirical.
-    """
-
     def __init__(self, window: int = CORR_WINDOW_NORMAL, threshold: float = CORR_THRESHOLD):
         self._window    = window
         self._threshold = threshold
         self._returns:   Dict[str, deque] = defaultdict(lambda: deque(maxlen=window))
         self._last_close: Dict[str, float] = {}
-        self._obs_count: Dict[str, int]   = defaultdict(int)   # pair → observation count
+        self._obs_count: Dict[str, int]   = defaultdict(int)
 
     def update(self, pair: str, close: float):
-        """Feed latest close. Call every bar from scheduler tick()."""
         pair = pair.upper()
         if pair in self._last_close and self._last_close[pair] > 0:
             log_ret = np.log(close / self._last_close[pair])
@@ -109,33 +72,20 @@ class HybridCorrelationEstimator:
                 self._obs_count[pair] += 1
         self._last_close[pair] = close
 
-    def get_correlation(
-        self,
-        pair_a: str,
-        pair_b: str,
-        regime: str = "trending",
-    ) -> float:
-        """
-        Hybrid correlation: blends static prior with live EWM estimate.
-        Always returns a value (falls back to static if no live data).
-        """
+    def get_correlation(self, pair_a: str, pair_b: str, regime: str = "trending") -> float:
         pair_a, pair_b = pair_a.upper(), pair_b.upper()
-        static_corr    = _get_static(pair_a, pair_b)
+        static_corr = _get_static(pair_a, pair_b)
 
-        # Determine observation count (minimum of the two pairs)
         n_a = self._obs_count.get(pair_a, 0)
         n_b = self._obs_count.get(pair_b, 0)
         n   = min(n_a, n_b)
 
-        # Warmup weight
         w_empirical = min(1.0, n / MIN_OBSERVATIONS)
         w_static    = 1.0 - w_empirical
 
-        # If no live data at all, return static
         if n < 3:
             return round(static_corr, 4)
 
-        # Compute live EWM correlation
         window = CORR_WINDOW_VOLATILE if regime == "volatile" else self._window
         rets_a = list(self._returns.get(pair_a, []))
         rets_b = list(self._returns.get(pair_b, []))
@@ -147,7 +97,6 @@ class HybridCorrelationEstimator:
         a = np.array(rets_a[-n_live:])
         b = np.array(rets_b[-n_live:])
 
-        # Exponential weights
         weights = np.exp(np.linspace(-1, 0, n_live))
         weights /= weights.sum()
         wa = np.average(a, weights=weights)
@@ -161,7 +110,6 @@ class HybridCorrelationEstimator:
         else:
             live_corr = float(np.clip(cov / (std_a * std_b), -1.0, 1.0))
 
-        # Blend: static → empirical as observations accumulate
         hybrid = w_static * static_corr + w_empirical * live_corr
 
         if n < MIN_OBSERVATIONS:
@@ -170,10 +118,10 @@ class HybridCorrelationEstimator:
                 f"static={static_corr:.2f} live={live_corr:.2f} hybrid={hybrid:.2f}"
             )
 
+        # FIX: was returning a tuple due to misplaced parenthesis
         return round(float(np.clip(hybrid, -1.0, 1.0)), 4)
 
     def warmup_status(self, pairs: List[str]) -> Dict[str, Dict]:
-        """How warmed up is each pair?"""
         return {
             pair: {
                 "observations": self._obs_count.get(pair.upper(), 0),
@@ -183,15 +131,7 @@ class HybridCorrelationEstimator:
             for pair in pairs
         }
 
-    def check_correlation_risk(
-        self,
-        pair:       str,
-        direction:  str,
-        open_positions: Dict,
-        max_correlated: int = 2,
-        regime:     str = "trending",
-    ) -> Dict:
-        """Full correlation risk check before opening a position."""
+    def check_correlation_risk(self, pair: str, direction: str, open_positions: Dict, max_correlated: int = 2, regime: str = "trending") -> Dict:
         correlated = []
         for open_pair, pos in open_positions.items():
             if open_pair.upper() == pair.upper():

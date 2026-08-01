@@ -1,5 +1,5 @@
 """
-PriceIQ Pro — Overnight & Gap Risk Manager v1.0
+PriceIQ Pro — Overnight & Gap Risk Manager v1.1
 
 Handles risks that occur when markets are closed:
     1. Weekend gap risk — XAUUSD gaps 50-100 pips on Sunday open
@@ -149,9 +149,12 @@ class OvernightGapManager:
             if pair_u in HIGH_GAP_PAIRS:
                 lots = getattr(pos, "lots", getattr(pos, "lots_remaining", 0))
                 msg  = (
-                    f"⚠️ <b>Friday Risk Reduction</b>\n"
-                    f"{pair_u}: High gap-risk pair open over weekend.\n"
-                    f"Lots: {lots} | Price: {price}\n"
+                    f"⚠️ <b>Friday Risk Reduction</b>
+"
+                    f"{pair_u}: High gap-risk pair open over weekend.
+"
+                    f"Lots: {lots} | Price: {price}
+"
                     f"Recommended: reduce to {lots * FRIDAY_SIZE_CAP:.2f}L or close."
                 )
                 await self._send(msg)
@@ -163,9 +166,12 @@ class OvernightGapManager:
         # Summary message
         if open_positions:
             await self._send(
-                f"📅 <b>Friday Close Summary</b>\n"
-                f"Open positions: {len(open_positions)}\n"
-                f"High-gap pairs: {sum(1 for p in open_positions if p.upper() in HIGH_GAP_PAIRS)}\n"
+                f"📅 <b>Friday Close Summary</b>
+"
+                f"Open positions: {len(open_positions)}
+"
+                f"High-gap pairs: {sum(1 for p in open_positions if p.upper() in HIGH_GAP_PAIRS)}
+"
                 f"Swap costs will accrue over weekend (3 nights)."
             )
         return actions
@@ -225,10 +231,14 @@ class OvernightGapManager:
             if severity in ("warn", "danger", "critical"):
                 emoji = {"warn": "⚠️", "danger": "🔴", "critical": "🚨"}[severity]
                 await self._send(
-                    f"{emoji} <b>Sunday Gap: {pair_u}</b>\n"
-                    f"Thu close: {thursday_close:.5f}\n"
-                    f"Sun open:  {sunday_open:.5f}\n"
-                    f"Gap: {gap_pips:.1f} pips {gap_dir} ({mult:.1f}× ATR)\n"
+                    f"{emoji} <b>Sunday Gap: {pair_u}</b>
+"
+                    f"Thu close: {thursday_close:.5f}
+"
+                    f"Sun open:  {sunday_open:.5f}
+"
+                    f"Gap: {gap_pips:.1f} pips {gap_dir} ({mult:.1f}× ATR)
+"
                     f"Action: {action}"
                 )
 

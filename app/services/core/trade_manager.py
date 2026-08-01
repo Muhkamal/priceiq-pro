@@ -137,7 +137,6 @@ class TradeManager:
         self._closed_log:  List[ManagedPosition] = []
 
     # ── Open ──────────────────────────────────────────────────
-
     def open_position(
         self,
         pair: str, direction: str,
@@ -148,7 +147,13 @@ class TradeManager:
         session: str = "unknown", timeframe: str = "1h",
         confidence: float = 0.0, win_prob: float = 0.0,
         bar_index: int = 0, reasoning: str = "",
-    ) -> ManagedPosition:
+    ) -> Optional[ManagedPosition]:
+        # ── POSITION CAP ──
+        if len(self._positions) >= 3:
+            logger.warning(f"POSITION CAP: rejecting {pair} ({len(self._positions)} open)")
+            return None
+        # ──────────────────
+
         now    = datetime.now(timezone.utc).isoformat()
         pos_id = f"{pair}_{bar_index}"
 
