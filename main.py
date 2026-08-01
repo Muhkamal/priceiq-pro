@@ -1,4 +1,4 @@
-"""PriceIQ Pro V5 -- Main Entry Point (SAFE v5 -- bulletproof strings)"""
+"""PriceIQ Pro V5 -- Main Entry Point (SAFE v6 -- circular import fix)"""
 import sys, os, asyncio, logging, httpx
 from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
@@ -10,12 +10,13 @@ logger = logging.getLogger(__name__)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.services.risk.overnight_gap_manager import OvernightGapManager, HIGH_GAP_PAIRS
-
 _signal_cooldown: dict = {}
 SIGNAL_COOLDOWN_MIN = 60
 
 async def trading_loop():
+    # -- Import here to avoid circular import at module level --
+    from app.services.risk.overnight_gap_manager import OvernightGapManager, HIGH_GAP_PAIRS
+
     scan_count = 0
     await asyncio.sleep(10)
     try:
