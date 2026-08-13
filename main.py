@@ -1,5 +1,6 @@
 """PriceIQ Pro V5 -- Main Entry Point (SAFE v6 -- circular import fix)"""
 import sys, os, asyncio, logging, httpx
+from app.services.monitoring.signal_bot import signal_bot
 from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
 
@@ -122,6 +123,13 @@ async def trading_loop():
                                         logger.warning("Telegram not configured (missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID)")
                                 except Exception as tg_e:
                                     logger.warning(f"Telegram alert failed: {tg_e}")
+                                
+                                # --- PUBLIC BROADCAST (channel + subscribers) ---
+                                try:
+                                    await signal_bot.broadcast_signal(result)
+                                    logger.info("Public signal broadcast sent")
+                                except Exception as be:
+                                    logger.warning(f"Public broadcast error: {be}")
                             else:
                                 logger.debug(f"No signal: {pair}")
                         else:
@@ -181,7 +189,9 @@ async def lifespan(app: FastAPI):
         traceback.print_exc()
 
     asyncio.create_task(trading_loop())
+    asyncio.create_task(signal_bot.start_polling())
     logger.info("Trading loop started")
+    logger.info("Signal subscription bot started")
 
     try:
         from app.services.api.v5_dashboard_api import v5_router
