@@ -39,6 +39,9 @@ class SubscriberStore:
     def count(self) -> int:
         return len(self._subs)
 
+    def is_subscribed(self, chat_id: str) -> bool:
+        return str(chat_id) in self._subs
+
     def _save(self):
         try:
             with open(SUBS_FILE, "w") as f:
@@ -121,8 +124,8 @@ class TelegramSignalBot:
         return await self.broadcast(msg)
 
     async def broadcast_outcome(self, pair: str, direction: str, outcome: str, pnl_r: float):
-        emoji = "✅" if outcome == "win" else "❌"
-        if outcome == "win":
+        emoji = "✅" if outcome in ("win", "tp1", "tp2") else "❌"
+        if outcome in ("win", "tp1", "tp2"):
             self._win_count += 1
         elif outcome == "loss":
             self._loss_count += 1
@@ -136,6 +139,8 @@ class TelegramSignalBot:
             f"📡 <i>@daethdevilbot</i>"
         )
         await self.broadcast(msg)
+
+    # --- USER COMMANDS ---
 
     async def handle_start(self, chat_id: str, username: str = ""):
         name = f"@{username}" if username else "there"
@@ -154,7 +159,7 @@ class TelegramSignalBot:
                 f"✅ <b>Subscribed!</b>\n\n"
                 f"You'll receive signals for:\n"
                 f"XAUUSD • EURUSD • GBPUSD\n"
-                f"USDJPY • USDCHF • AUDUSD\n\n"
+                f"USDJPY • USDCHF • AUDUSD • BTCUSD\n\n"
                 f"Subscribers: {self._store.count()}\n"
                 f"Type /unsubscribe to stop."
             )
@@ -183,15 +188,92 @@ class TelegramSignalBot:
             f"Subscribers: {self._store.count()}"
         )
 
+    # --- PERFORMANCE TRACKER COMMANDS ---
+
+    async def handle_leaderboard(self, chat_id: str):
+        from app.services.learning.signal_performance_tracker import tracker
+        board = tracker.get_leaderboard(top_n=10)
+        if not board:
+            await self.send(chat_id, "📊 No tracked signals yet. Need 5+ resolved per combo.")
+            return
+        lines = ["🏆 <b>Signal Leaderboard</b>\n"]
+        for i, row in enumerate(board, 1):
+            emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "▫️"
+            lines.append(
+                f"{emoji} <b>{row['combo']}</b>\n"
+                f"   WR: {row['win_rate']:.0%} | Avg: {row['avg_pnl_r']:+.2f}R | N={row['count']}\n"
+            )
+        await self.send(chat_id, "\n".join(lines))
+
+    async def handle_pairstats(self, chat_id: str, pair: str):
+        from app.services.learning.signal_performance_tracker import tracker
+        stats = tracker.get_stats(pair=pair)
+        if stats["count"] == 0:
+            await self.send(chat_id, f"📊 No resolved signals for {pair} yet.")
+            return
+        msg = (
+            f"📊 <b>{pair} Performance</b>\n\n"
+            f"Signals: <b>{stats['count']}</b>\n"
+            f"Win Rate: <b>{stats['win_rate']:.0%}</b>\n"
+            f"Avg R: <b>{stats['avg_pnl_r']:+.2f}R</b>\n"
+            f"Total R: <b>{stats['total_r']:+.2f}R</b>\n\n"
+            f"TP1: {stats['tp1']} | TP2: {stats['tp2']}\n"
+            f"SL: {stats['sl']} | Timeout: {stats['timeout']}"
+        )
+        await self.send(chat_id, msg)
+
+    async def handle_performance(self, chat_id: str):
+        from app.services.learning.signal_performance_tracker import tracker
+        pairs = tracker.get_pair_stats()
+        if not pairs:
+            await self.send(chat_id, "📊 No resolved signals yet. First signals need to hit SL or TP.")
+            return
+        lines = [
+            f"📊 <b>Overall Performance</b>\n",
+        ]
+        for pair, st in pairs.items():
+            lines.append(
+                f"<b>{pair}</b>: {st['win_rate']:.0%} WR | {st['avg_pnl_r']:+.2f}R avg | n={st['count']}"
+            )
+        await self.send(chat_id, "\n".join(lines))
+
+    async def handle_modelstats(self, chat_id: str):
+        from app.services.ml.signal_outcome_predictor import outcome_predictor
+        stats = outcome_predictor.get_stats()
+        if stats["status"] == "cold_start":
+            await self.send(chat_id,
+                f"🧠 <b>AI Model: Cold Start</b>\n\n"
+                f"Samples collected: {stats['total_samples']}/{outcome_predictor.MIN_SAMPLES}\n"
+                f"Need {outcome_predictor.MIN_SAMPLES - stats['total_samples']} more resolved signals to train.\n\n"
+                f"Keep taking signals — the model is watching."
+            )
+            return
+        status_emoji = "✅" if stats["model_loaded"] else "⏳"
+        await self.send(chat_id,
+            f"🧠 <b>AI Signal Predictor</b> {status_emoji}\n\n"
+            f"Status: <b>{stats['status'].upper()}</b>\n"
+            f"Total samples: <b>{stats['total_samples']}</b>\n"
+            f"Historical WR: <b>{stats['win_rate']:.0%}</b>\n"
+            f"Recent 50 WR: <b>{stats['recent_50_wr']:.0%}</b>\n"
+            f"Pending signals: {stats['pending_unlabeled']}\n\n"
+            f"<i>Retrains every {outcome_predictor.RETRAIN_EVERY} new outcomes</i>"
+        )
+
     async def handle_help(self, chat_id: str):
         await self.send(chat_id,
             f"📋 <b>Commands</b>\n\n"
             f"/subscribe — receive signals\n"
             f"/unsubscribe — stop signals\n"
-            f"/stats — performance stats\n"
+            f"/stats — bot stats\n"
+            f"/performance — signal performance by pair\n"
+            f"/leaderboard — best agent+regime+pair combos\n"
+            f"/pairstats PAIR — e.g. /pairstats XAUUSD\n"
+            f"/modelstats — AI model training status\n"
             f"/help — this message\n\n"
             f"⚠️ <i>Trading involves risk.</i>"
         )
+
+    # --- POLLING ---
 
     async def start_polling(self):
         self._running = True
@@ -235,6 +317,18 @@ class TelegramSignalBot:
                 await self.handle_stats(chat_id)
             elif text == "/help":
                 await self.handle_help(chat_id)
+            elif text == "/leaderboard":
+                await self.handle_leaderboard(chat_id)
+            elif text.startswith("/pairstats"):
+                parts = text.split()
+                if len(parts) >= 2:
+                    await self.handle_pairstats(chat_id, parts[1].upper())
+                else:
+                    await self.send(chat_id, "Usage: /pairstats XAUUSD")
+            elif text == "/performance":
+                await self.handle_performance(chat_id)
+            elif text == "/modelstats":
+                await self.handle_modelstats(chat_id)
             else:
                 await self.send(chat_id, "Type /help for commands.")
         except Exception as e:

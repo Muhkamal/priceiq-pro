@@ -84,6 +84,7 @@ from .ml.feature_drift_monitor         import FeatureDriftMonitor
 from .ml.win_prob_calibrator           import WinProbabilityCalibrator
 from .ml.synthetic_augmenter           import SyntheticDataAugmenter
 from .ml.regime_transition_model       import RegimeTransitionModel
+from .ml.signal_outcome_predictor      import outcome_predictor
 from .agents.agent_layer               import AgentOrchestrator, OrchestratorResult
 from .agents.signal_conflict_resolver  import SignalConflictResolver
 from .learning.learning_loop           import LearningLoop
@@ -93,6 +94,7 @@ from .risk.hybrid_correlation          import HybridCorrelationEstimator as Dyna
 from .risk.volatility_sizer            import VolatilityTargetedSizer
 from .risk.var_engine_v2               import VaREngine
 from .core.economic_calendar           import EconomicCalendar
+from .core.signal_gates                import MacroGate, NewsGate, COTGate
 from .core.trade_manager_v2               import TradeManager
 from .core.trade_journal               import TradeJournal, JournalEntry
 from .core.candle_cache                import CandleCache
@@ -112,7 +114,7 @@ try:
 except ImportError:
     _MAE_AVAILABLE = False
 
-WATCHLIST = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD"]
+WATCHLIST = ["XAUUSD", "EURUSD", "GBPUSD", "USDCHF", "AUDUSD", "BTCUSD"]
 
 
 @dataclass
@@ -242,6 +244,11 @@ class V5OrchestratorFinal:
             max_heat_pct=0.06,
             critical_heat_pct=0.10,
         )
+
+        # ── Signal Gates ─────────────────────────────────────
+        self.macro_gate        = MacroGate()
+        self.news_gate         = NewsGate()
+        self.cot_gate          = COTGate()
 
         # ── Core ─────────────────────────────────────────────
         self.calendar          = EconomicCalendar()
@@ -404,6 +411,51 @@ class V5OrchestratorFinal:
 
         signal    = orch_result.selected_signal
         agent     = orch_result.selected_agent
+
+        # ── AI OUTCOME PREDICTOR ─────────────────────────────
+        try:
+            model_prob, is_cold, model_signal_id = outcome_predictor.predict(signal, candles)
+            signal._model_signal_id = model_signal_id
+            if is_cold:
+                logger.info(f"AI cold start — blended prob={model_prob:.2f} (need {outcome_predictor.MIN_SAMPLES} samples)")
+            else:
+                logger.info(f"AI prediction: win_prob={model_prob:.2f} for {agent} on {pair}")
+            # Block if model strongly disagrees
+            if model_prob < 0.40:
+                return self._no_signal(pair, timeframe, now_str, session_name,
+                                       regime=regime,
+                                       reason=f"AI blocked (win_prob={model_prob:.2f})",
+                                       conf_b=True)
+            # Override win probability for EV calc
+            old_wp = signal.win_probability
+            signal.win_probability = model_prob
+            rr1 = signal.tp1_distance / max(signal.stop_distance, 1e-9)
+            signal.expected_value = round(model_prob * rr1 - (1 - model_prob), 4)
+            signal.reasoning += f" | AI win_prob={model_prob:.2f} (agent={old_wp:.2f})"
+        except Exception as e:
+            logger.warning(f"AI predictor error: {e}")
+
+        # ── SIGNAL GATES (Macro / News / COT) ────────────────
+        try:
+            macro_ok, macro_adj = self.macro_gate.check(pair, direction)
+            if not macro_ok:
+                return self._no_signal(pair, timeframe, now_str, session_name,
+                                       regime=regime,
+                                       reason="Macro gate blocked (DXY/real rates spike)",
+                                       conf_b=True)
+            news_ok, news_adj = self.news_gate.check(pair, direction)
+            cot_bias = self.cot_gate.get_bias(pair)
+            # Adjust confidence
+            adj = macro_adj + news_adj
+            if agent == "MeanReversionAgent":
+                adj += cot_bias["mean_reversion_boost"]
+            elif agent in ("TrendAgent", "HiddenDivergenceAgent", "FractalAgent"):
+                adj += cot_bias["trend_boost"]
+            if adj != 0:
+                signal.confidence = min(1.0, max(0.0, signal.confidence + adj))
+                signal.reasoning += f" | Gate adj={adj:+.2f}"
+        except Exception as e:
+            logger.warning(f"Signal gates error: {e}")
 
         # ── DEFENSE-IN-DEPTH: Regime-fit gate ─────────────────
         # Even if agent_layer.py regime-lock is bypassed, this catches it

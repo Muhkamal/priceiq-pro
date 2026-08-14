@@ -1,6 +1,7 @@
 """PriceIQ Pro V5 -- Main Entry Point (SAFE v6 -- circular import fix)"""
 import sys, os, asyncio, logging, httpx
 from app.services.monitoring.signal_bot import signal_bot
+from app.services.learning.signal_performance_tracker import tracker
 from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
 
@@ -30,7 +31,7 @@ async def trading_loop():
     gap_mgr = OvernightGapManager(telegram=None)
     _thursday_closes: dict = {}
 
-    watchlist = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD"]
+    watchlist = ["XAUUSD", "EURUSD", "GBPUSD", "USDCHF", "AUDUSD", "BTCUSD"]
 
     while True:
         now = datetime.now(timezone.utc)
@@ -54,6 +55,18 @@ async def trading_loop():
                 for pair in watchlist:
                     try:
                         candles = await fetcher.get_candles(pair, "1h", limit=300)
+                        if candles:
+                            try:
+                                resolved = await tracker.update_with_candles(pair, candles)
+                                for sig in resolved:
+                                    try:
+                                        await signal_bot.broadcast_outcome(
+                                            sig["pair"], sig["direction"], sig["outcome"], sig["pnl_r"]
+                                        )
+                                    except Exception as be:
+                                        logger.warning(f"Outcome broadcast error: {be}")
+                            except Exception as te:
+                                logger.warning(f"Tracker resolve error: {te}")
                         if candles and len(candles) >= 55:
                             candles = [c for c in candles
                                        if getattr(c, "high", 1) != getattr(c, "low", 0)]
@@ -98,6 +111,10 @@ async def trading_loop():
                             if result and result.signal_fired:
                                 _signal_cooldown[pair] = datetime.now(timezone.utc)
                                 logger.info(f"SIGNAL: {pair} {result.direction} conf={result.confidence:.0%}")
+                                try:
+                                    await tracker.record(result)
+                                except Exception as te:
+                                    logger.warning(f"Tracker record error: {te}")
                                 try:
                                     tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
                                     tg_chat = os.getenv("TELEGRAM_CHAT_ID")
@@ -155,6 +172,21 @@ async def trading_loop():
                             await gap_mgr.on_friday_close(open_pos, current_prices)
                     except Exception as e:
                         logger.warning(f"Friday gap check failed: {e}")
+
+                # --- Bar time stops ---
+                try:
+                    if hasattr(v5, "trade_manager") and hasattr(v5, "_scan_count"):
+                        current_prices = {}
+                        for p in watchlist:
+                            try:
+                                c = await fetcher.get_candles(p, "1h", limit=1)
+                                if c:
+                                    current_prices[p.upper()] = getattr(c[-1], "close", 0)
+                            except Exception:
+                                pass
+                        await v5.trade_manager.check_bar_stops(v5._scan_count, current_prices, max_bars=8)
+                except Exception as e:
+                    logger.warning(f"Bar stop check: {e}")
 
                 v5._scan_count = scan_count
                 logger.info(f"Scan #{scan_count} complete")

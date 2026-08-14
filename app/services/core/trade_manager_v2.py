@@ -466,6 +466,26 @@ class TradeManager:
         except Exception as e:
             logger.warning(f"TradeManager learning update failed: {e}")
 
+
+    # ── Bar-based time stop ───────────────────────────────────
+    async def check_bar_stops(self, current_bar_index: int, current_prices: Dict[str, float], max_bars: int = 8):
+        """
+        Close positions open for > max_bars without hitting TP/SL.
+        Called from orchestrator after every scan.
+        """
+        to_close = []
+        for pair, pos in list(self._positions.items()):
+            if not pos.is_open:
+                continue
+            entry_bar = getattr(pos, "bar_index", 0)
+            if current_bar_index - entry_bar >= max_bars:
+                price = current_prices.get(pair)
+                if price:
+                    logger.info(f"BAR STOP: {pair} after {max_bars} bars (bar {entry_bar} -> {current_bar_index})")
+                    await self.force_close(pair, price, reason=f"bar_stop_{max_bars}")
+                else:
+                    logger.warning(f"Bar stop for {pair}: no current price available")
+
     def get_open_positions(self) -> Dict[str, Dict]:
         return {
             pair: {

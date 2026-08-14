@@ -432,6 +432,250 @@ class LiquidityTrapAgent(BaseAgent):
         )
 
 
+
+# ============================================================
+# AGENT 5 — WILLIAMS %R AGENT
+# ============================================================
+
+class WilliamsRAgent(BaseAgent):
+    """
+    Mean-reversion on Williams %R extremes.
+    Only trades in ranging / weak-trend conditions.
+    """
+    NAME = "WilliamsRAgent"
+    REGIME_FIT = {"trending": 0.2, "ranging": 1.0, "volatile": 0.3}
+
+    def evaluate(self, candles: list, regime: str) -> AgentSignal:
+        if len(candles) < 20:
+            return self._null_signal("Insufficient candles")
+
+        closes = self._closes(candles)
+        highs = [c.high for c in candles if hasattr(c, "high") and np.isfinite(c.high)]
+        lows = [c.low for c in candles if hasattr(c, "low") and np.isfinite(c.low)]
+        if len(closes) < 14 or len(highs) < 14 or len(lows) < 14:
+            return self._null_signal("Insufficient data")
+
+        highest_high = max(highs[-14:])
+        lowest_low = min(lows[-14:])
+        curr = closes[-1]
+
+        if highest_high == lowest_low:
+            return self._null_signal("Flat market")
+
+        wr = -100 * (highest_high - curr) / (highest_high - lowest_low)
+
+        # ADX approx — block if trending strongly
+        adx = self._approx_adx(highs, lows, closes)
+        if adx > 30:
+            return self._null_signal(f"ADX={adx:.1f} too strong for mean reversion")
+
+        direction = None
+        if wr < -80:
+            direction = "buy"
+            confidence = min(0.90, 0.55 + abs(wr + 80) / 40)
+        elif wr > -20:
+            direction = "sell"
+            confidence = min(0.90, 0.55 + abs(wr + 20) / 40)
+
+        if not direction:
+            return self._null_signal(f"Williams %R={wr:.1f} not extreme")
+
+        atr_val = _atr(candles)
+        stop_dist = atr_val * 1.5
+        tp1_dist = atr_val * 2.5
+        tp2_dist = atr_val * 3.5
+        win_prob = 0.56 if confidence > 0.70 else 0.52
+
+        ev = win_prob * _safe_div(tp1_dist, stop_dist, 1.5) - (1 - win_prob)
+
+        return AgentSignal(
+            agent_name=self.NAME,
+            direction=direction,
+            confidence=round(confidence, 2),
+            win_probability=round(win_prob, 2),
+            expected_value=round(ev, 4),
+            stop_distance=stop_dist,
+            tp1_distance=tp1_dist,
+            tp2_distance=tp2_dist,
+            regime_fit=self.REGIME_FIT.get(regime, 0.5),
+            reasoning=f"Williams %R={wr:.1f} ({'oversold' if direction=='buy' else 'overbought'}) ADX≈{adx:.1f}",
+            raw_features={"williams_r": wr, "adx_approx": adx},
+        )
+
+    def _approx_adx(self, highs, lows, closes, period=14):
+        if len(highs) < period + 1:
+            return 0.0
+        trs = []
+        for i in range(-period, 0):
+            tr = max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1]))
+            trs.append(tr)
+        return float(np.mean(trs)) / (float(np.mean(closes[-period:])) + 1e-9) * 100
+
+
+# ============================================================
+# AGENT 6 — HIDDEN DIVERGENCE AGENT
+# ============================================================
+
+class HiddenDivergenceAgent(BaseAgent):
+    """
+    Trend-continuation via RSI hidden divergence.
+    Bullish: price higher low, RSI lower low (uptrend)
+    Bearish: price lower high, RSI higher high (downtrend)
+    """
+    NAME = "HiddenDivergenceAgent"
+    REGIME_FIT = {"trending": 1.0, "ranging": 0.3, "volatile": 0.5}
+
+    def evaluate(self, candles: list, regime: str) -> AgentSignal:
+        if len(candles) < 40:
+            return self._null_signal("Insufficient candles")
+
+        closes = self._closes(candles)
+        if len(closes) < 30:
+            return self._null_signal("Insufficient closes")
+
+        rsi_val = _rsi(closes)
+        ema_fast = _ema(closes, 10)[-1]
+        ema_slow = _ema(closes, 30)[-1]
+        uptrend = ema_fast > ema_slow * 1.001
+
+        direction = None
+        confidence = 0.5
+
+        # Find swing lows/highs in last 30 bars
+        if uptrend:
+            lows = [(i, closes[-30:][i]) for i in range(1, 29)]
+            # Simplified: check last 2 significant lows
+            if closes[-1] > closes[-5] and closes[-5] > closes[-15]:
+                # Price higher low structure
+                rsi_now = _rsi(closes[-15:])
+                rsi_then = _rsi(closes[-30:-15])
+                if rsi_now < rsi_then and rsi_now < 45:
+                    direction = "buy"
+                    confidence = min(0.82, 0.55 + (rsi_then - rsi_now) / 80)
+        else:
+            if closes[-1] < closes[-5] and closes[-5] < closes[-15]:
+                rsi_now = _rsi(closes[-15:])
+                rsi_then = _rsi(closes[-30:-15])
+                if rsi_now > rsi_then and rsi_now > 55:
+                    direction = "sell"
+                    confidence = min(0.82, 0.55 + (rsi_now - rsi_then) / 80)
+
+        if not direction:
+            return self._null_signal("No hidden divergence")
+
+        atr_val = _atr(candles)
+        stop_dist = atr_val * 1.8
+        tp1_dist = atr_val * 2.8
+        tp2_dist = atr_val * 4.0
+        win_prob = 0.58 if confidence > 0.70 else 0.53
+
+        ev = win_prob * _safe_div(tp1_dist, stop_dist, 1.5) - (1 - win_prob)
+
+        return AgentSignal(
+            agent_name=self.NAME,
+            direction=direction,
+            confidence=round(confidence, 2),
+            win_probability=round(win_prob, 2),
+            expected_value=round(ev, 4),
+            stop_distance=stop_dist,
+            tp1_distance=tp1_dist,
+            tp2_distance=tp2_dist,
+            regime_fit=self.REGIME_FIT.get(regime, 0.5),
+            reasoning=f"Hidden divergence {'bullish' if direction=='buy' else 'bearish'} | RSI={rsi_val:.1f}",
+            raw_features={"rsi": rsi_val, "ema_fast": ema_fast, "ema_slow": ema_slow},
+        )
+
+
+# ============================================================
+# AGENT 7 — FRACTAL BREAKOUT AGENT
+# ============================================================
+
+class FractalAgent(BaseAgent):
+    """
+    Breakout above/below recent Williams Fractals.
+    Only trades when ADX > 20 (trend strength present).
+    """
+    NAME = "FractalAgent"
+    REGIME_FIT = {"trending": 0.8, "ranging": 0.3, "volatile": 1.0}
+
+    def evaluate(self, candles: list, regime: str) -> AgentSignal:
+        if len(candles) < 20:
+            return self._null_signal("Insufficient candles")
+
+        closes = self._closes(candles)
+        highs = [c.high for c in candles if hasattr(c, "high") and np.isfinite(c.high)]
+        lows = [c.low for c in candles if hasattr(c, "low") and np.isfinite(c.low)]
+        if len(highs) < 10 or len(lows) < 10:
+            return self._null_signal("Insufficient OHLC")
+
+        # Fractal highs/lows (2-bar each side)
+        fractal_highs = []
+        fractal_lows = []
+        for i in range(2, len(highs) - 2):
+            if highs[i] == max(highs[i-2:i+3]):
+                fractal_highs.append(highs[i])
+            if lows[i] == min(lows[i-2:i+3]):
+                fractal_lows.append(lows[i])
+
+        if not fractal_highs or not fractal_lows:
+            return self._null_signal("No fractals detected")
+
+        recent_high = fractal_highs[-1]
+        recent_low = fractal_lows[-1]
+        curr = closes[-1]
+
+        adx = self._approx_adx(highs, lows, closes)
+        if adx < 20:
+            return self._null_signal(f"ADX={adx:.1f} too weak for breakout")
+
+        direction = None
+        if curr > recent_high * 1.0005:
+            direction = "buy"
+        elif curr < recent_low * 0.9995:
+            direction = "sell"
+
+        if not direction:
+            return self._null_signal(f"Price inside fractal range [{recent_low:.5f}, {recent_high:.5f}]")
+
+        atr_val = _atr(candles)
+        stop_dist = atr_val * 1.5 if direction == "buy" else atr_val * 1.5
+        # Stop beyond the fractal that was broken
+        if direction == "buy":
+            stop_dist = max(stop_dist, abs(curr - recent_low) * 1.2)
+        else:
+            stop_dist = max(stop_dist, abs(recent_high - curr) * 1.2)
+
+        tp1_dist = stop_dist * 2.0
+        tp2_dist = stop_dist * 3.5
+        confidence = min(0.85, 0.50 + adx / 100)
+        win_prob = 0.55
+
+        ev = win_prob * _safe_div(tp1_dist, stop_dist, 1.5) - (1 - win_prob)
+
+        return AgentSignal(
+            agent_name=self.NAME,
+            direction=direction,
+            confidence=round(confidence, 2),
+            win_probability=round(win_prob, 2),
+            expected_value=round(ev, 4),
+            stop_distance=stop_dist,
+            tp1_distance=tp1_dist,
+            tp2_distance=tp2_dist,
+            regime_fit=self.REGIME_FIT.get(regime, 0.5),
+            reasoning=f"Fractal {'high' if direction=='buy' else 'low'} breakout @ {recent_high if direction=='buy' else recent_low:.5f} ADX={adx:.1f}",
+            raw_features={"fractal_high": recent_high, "fractal_low": recent_low, "adx": adx},
+        )
+
+    def _approx_adx(self, highs, lows, closes, period=14):
+        if len(highs) < period + 1:
+            return 0.0
+        trs = []
+        for i in range(-period, 0):
+            tr = max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1]))
+            trs.append(tr)
+        return float(np.mean(trs)) / (float(np.mean(closes[-period:])) + 1e-9) * 100
+
+
 # ============================================================
 # AGENT ORCHESTRATOR — SAFE (no fallback, regime-locked)
 # ============================================================
@@ -458,10 +702,13 @@ class AgentOrchestrator:
 
     def __init__(self):
         self.agents = {
-            "TrendAgent":          TrendAgent(),
-            "MeanReversionAgent":  MeanReversionAgent(),
-            "BreakoutAgent":       BreakoutAgent(),
-            "LiquidityTrapAgent":  LiquidityTrapAgent(),
+            "TrendAgent":             TrendAgent(),
+            "MeanReversionAgent":     MeanReversionAgent(),
+            "BreakoutAgent":          BreakoutAgent(),
+            "LiquidityTrapAgent":     LiquidityTrapAgent(),
+            "WilliamsRAgent":         WilliamsRAgent(),
+            "HiddenDivergenceAgent":  HiddenDivergenceAgent(),
+            "FractalAgent":           FractalAgent(),
         }
         self.weights: Dict[str, float] = {name: 1.0 for name in self.agents}
 
