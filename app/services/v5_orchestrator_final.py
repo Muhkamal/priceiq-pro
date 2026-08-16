@@ -102,7 +102,6 @@ from .core.mtf_confluence_filter       import mtf_filter
 from .core.entry_optimizer              import entry_optimizer
 from .core.correlation_filter           import corr_filter
 from .core.daily_circuit_breaker        import circuit_breaker
-from .core.news_blackout                import news_blackout
 from .core.fvg_optimizer                import fvg_optimizer
 from .core.exposure_manager             import exposure_manager
 from .learning.agent_weight_adjuster    import agent_adjuster
@@ -368,6 +367,8 @@ class V5OrchestratorFinal:
                                    regime="blocked", reason=cb_reason, risk_b=True)
 
         # ── Gate -2: News Blackout ──────────────────────────────
+        from .core.news_blackout import news_blackout
+        self.news_gate = news_blackout
         news_ok, news_reason = self.news_gate.check(pair)
         if not news_ok:
             return self._no_signal(pair, timeframe, now_str, session_name,
