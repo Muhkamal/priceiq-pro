@@ -254,7 +254,8 @@ class V5OrchestratorFinal:
 
         # ── Signal Gates & Filters ───────────────────────────
         self.macro_gate        = None  # placeholder if macro module added later
-        self.news_gate         = news_blackout
+        # Lazy init — will be loaded on first use
+        self.news_gate         = None
         self.corr_filter       = corr_filter
         self.exposure_mgr      = exposure_manager
         self.fvg_opt           = fvg_optimizer
