@@ -84,7 +84,6 @@ from .ml.feature_drift_monitor         import FeatureDriftMonitor
 from .ml.win_prob_calibrator           import WinProbabilityCalibrator
 from .ml.synthetic_augmenter           import SyntheticDataAugmenter
 from .ml.regime_transition_model       import RegimeTransitionModel
-from .ml.signal_outcome_predictor      import outcome_predictor
 from .agents.agent_layer               import AgentOrchestrator, OrchestratorResult
 from .agents.signal_conflict_resolver  import SignalConflictResolver
 from .learning.learning_loop           import LearningLoop
@@ -94,11 +93,20 @@ from .risk.hybrid_correlation          import HybridCorrelationEstimator as Dyna
 from .risk.volatility_sizer            import VolatilityTargetedSizer
 from .risk.var_engine_v2               import VaREngine
 from .core.economic_calendar           import EconomicCalendar
-from .core.signal_gates                import MacroGate, NewsGate, COTGate
 from .core.trade_manager_v2               import TradeManager
 from .core.trade_journal               import TradeJournal, JournalEntry
 from .core.candle_cache                import CandleCache
 from .execution.execution_intelligence import ExecutionIntelligence
+from .core.smart_stop_calculator       import smart_stop
+from .core.mtf_confluence_filter       import mtf_filter
+from .core.entry_optimizer              import entry_optimizer
+from .core.correlation_filter           import corr_filter
+from .core.daily_circuit_breaker        import circuit_breaker
+from .core.news_blackout                import news_blackout
+from .core.fvg_optimizer                import fvg_optimizer
+from .core.exposure_manager             import exposure_manager
+from .learning.agent_weight_adjuster    import agent_adjuster
+from .learning.weekend_gap_handler      import get_market_status
 from .monitoring.system_monitor        import SystemMonitor
 from .monitoring.anomaly_detector      import AnomalyDetector
 from .backtest.walk_forward            import WalkForwardEngine, BacktestResult
@@ -245,10 +253,14 @@ class V5OrchestratorFinal:
             critical_heat_pct=0.10,
         )
 
-        # ── Signal Gates ─────────────────────────────────────
-        self.macro_gate        = MacroGate()
-        self.news_gate         = NewsGate()
-        self.cot_gate          = COTGate()
+        # ── Signal Gates & Filters ───────────────────────────
+        self.macro_gate        = None  # placeholder if macro module added later
+        self.news_gate         = news_blackout
+        self.corr_filter       = corr_filter
+        self.exposure_mgr      = exposure_manager
+        self.fvg_opt           = fvg_optimizer
+        self.entry_opt         = entry_optimizer
+        self.agent_adjuster    = agent_adjuster
 
         # ── Core ─────────────────────────────────────────────
         self.calendar          = EconomicCalendar()
@@ -348,6 +360,25 @@ class V5OrchestratorFinal:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    reason="Insufficient candles")
 
+        # ── Gate -3: Daily Circuit Breaker ────────────────────
+        can_trade, cb_reason = circuit_breaker.can_trade()
+        if not can_trade:
+            logger.warning(f"CIRCUIT BREAKER: {cb_reason}")
+            return self._no_signal(pair, timeframe, now_str, session_name,
+                                   regime="blocked", reason=cb_reason, risk_b=True)
+
+        # ── Gate -2: News Blackout ──────────────────────────────
+        news_ok, news_reason = self.news_gate.check(pair)
+        if not news_ok:
+            return self._no_signal(pair, timeframe, now_str, session_name,
+                                   regime="blocked", reason=f"News blackout: {news_reason}", calendar_b=True)
+
+        # ── Gate -1: Exposure Manager ───────────────────────────
+        exp_ok, exp_reason = self.exposure_mgr.can_add(pair)
+        if not exp_ok:
+            return self._no_signal(pair, timeframe, now_str, session_name,
+                                   regime="blocked", reason=exp_reason, risk_b=True)
+
         # ── Gate 0: Anomaly ───────────────────────────────────
         anomaly = self.anomaly_det.check(candles, pair)
         if anomaly.block_signals:
@@ -412,51 +443,6 @@ class V5OrchestratorFinal:
         signal    = orch_result.selected_signal
         agent     = orch_result.selected_agent
 
-        # ── AI OUTCOME PREDICTOR ─────────────────────────────
-        try:
-            model_prob, is_cold, model_signal_id = outcome_predictor.predict(signal, candles)
-            signal._model_signal_id = model_signal_id
-            if is_cold:
-                logger.info(f"AI cold start — blended prob={model_prob:.2f} (need {outcome_predictor.MIN_SAMPLES} samples)")
-            else:
-                logger.info(f"AI prediction: win_prob={model_prob:.2f} for {agent} on {pair}")
-            # Block if model strongly disagrees
-            if model_prob < 0.40:
-                return self._no_signal(pair, timeframe, now_str, session_name,
-                                       regime=regime,
-                                       reason=f"AI blocked (win_prob={model_prob:.2f})",
-                                       conf_b=True)
-            # Override win probability for EV calc
-            old_wp = signal.win_probability
-            signal.win_probability = model_prob
-            rr1 = signal.tp1_distance / max(signal.stop_distance, 1e-9)
-            signal.expected_value = round(model_prob * rr1 - (1 - model_prob), 4)
-            signal.reasoning += f" | AI win_prob={model_prob:.2f} (agent={old_wp:.2f})"
-        except Exception as e:
-            logger.warning(f"AI predictor error: {e}")
-
-        # ── SIGNAL GATES (Macro / News / COT) ────────────────
-        try:
-            macro_ok, macro_adj = self.macro_gate.check(pair, direction)
-            if not macro_ok:
-                return self._no_signal(pair, timeframe, now_str, session_name,
-                                       regime=regime,
-                                       reason="Macro gate blocked (DXY/real rates spike)",
-                                       conf_b=True)
-            news_ok, news_adj = self.news_gate.check(pair, direction)
-            cot_bias = self.cot_gate.get_bias(pair)
-            # Adjust confidence
-            adj = macro_adj + news_adj
-            if agent == "MeanReversionAgent":
-                adj += cot_bias["mean_reversion_boost"]
-            elif agent in ("TrendAgent", "HiddenDivergenceAgent", "FractalAgent"):
-                adj += cot_bias["trend_boost"]
-            if adj != 0:
-                signal.confidence = min(1.0, max(0.0, signal.confidence + adj))
-                signal.reasoning += f" | Gate adj={adj:+.2f}"
-        except Exception as e:
-            logger.warning(f"Signal gates error: {e}")
-
         # ── DEFENSE-IN-DEPTH: Regime-fit gate ─────────────────
         # Even if agent_layer.py regime-lock is bypassed, this catches it
         if signal.regime_fit < 0.5:
@@ -478,6 +464,66 @@ class V5OrchestratorFinal:
         signal    = orch_result.selected_signal
         agent     = orch_result.selected_agent
         direction = signal.direction
+
+        # ── SMART STOP RECALCULATION ──
+        try:
+            smart = smart_stop.calculate(
+                candles=candles, direction=direction, pair=pair,
+                session=session_name, entry_price=getattr(signal, "entry_price", None),
+            )
+            signal.stop_loss = smart["sl"]
+            signal.take_profit_1 = smart["tp1"]
+            signal.take_profit_2 = smart["tp2"]
+            signal.stop_distance = smart["sl_distance"]
+            signal.tp1_distance = smart["tp1_distance"]
+            signal.tp2_distance = smart["tp2_distance"]
+            signal.reasoning += f" | SmartStop:{smart['method']} RR={smart['rr']}"
+            logger.info(f"SmartStop: {pair} {direction} SL={smart['sl']} structure@{smart['structure_level']}")
+        except Exception as e:
+            logger.warning(f"SmartStop error: {e}")
+
+        # ── MTF CONFLUENCE FILTER ──
+        try:
+            candles_4h = await self._get_4h_candles(pair)
+            if candles_4h:
+                allow, boost, mtf_reason = mtf_filter.check(direction, candles_4h, pair)
+                if not allow:
+                    return self._no_signal(pair, timeframe, now_str, session_name,
+                                           regime=regime, reason=f"MTF blocked: {mtf_reason}", conf_b=True)
+                if boost != 0:
+                    signal.confidence = min(1.0, max(0.0, signal.confidence + boost))
+                    signal.reasoning += f" | {mtf_reason}"
+        except Exception as e:
+            logger.warning(f"MTF filter error: {e}")
+
+        # ── FVG ENTRY OPTIMIZATION ──
+        try:
+            fvg = self.fvg_opt.suggest_entry(candles, direction, pair)
+            if fvg["use_fvg"]:
+                signal._fvg_entry = fvg["entry"]
+                signal._entry_type = "fvg_limit"
+                signal.reasoning += f" | FVG entry @{fvg['entry']} ({fvg['fvg_type']})"
+                logger.info(f"FVG limit entry for {pair}: {fvg['entry']}")
+        except Exception as e:
+            logger.debug(f"FVG error: {e}")
+
+        # ── AGENT WEIGHT ADJUSTMENT ──
+        try:
+            raw_conf = signal.confidence
+            signal.confidence = agent_adjuster.apply(agent, raw_conf)
+            if signal.confidence != raw_conf:
+                signal.reasoning += f" | AgentWeight:{agent_adjuster.get_weight(agent):.2f}"
+        except Exception as e:
+            logger.debug(f"Agent weight error: {e}")
+
+        # ── CORRELATION FILTER (signal-level) ──
+        try:
+            corr_ok, blocked_by, corr_reason = self.corr_filter.check(pair)
+            if not corr_ok:
+                return self._no_signal(pair, timeframe, now_str, session_name,
+                                       regime=regime, reason=corr_reason, corr_b=True)
+        except Exception as e:
+            logger.debug(f"Correlation filter error: {e}")
 
         # ── Gate 5: Signal conflict resolution ────────────────
         conflict = self.conflict_resolver.evaluate(orch_result)
@@ -535,6 +581,8 @@ class V5OrchestratorFinal:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime, reason=risk_dec.reason, risk_b=True)
         lots = risk_dec.adjusted_lots
+        # Hard override: always 0.01 micro lots for $100 account
+        lots = 0.01
 
         # ── Gate 9: Dynamic correlation ───────────────────────
         corr_check = self.corr_estimator.check_correlation_risk(
@@ -620,6 +668,13 @@ class V5OrchestratorFinal:
 
         logger.info(reasoning)
 
+        # Record for filters
+        try:
+            self.corr_filter.record(pair)
+            self.exposure_mgr.record(pair, direction)
+        except Exception as rec_e:
+            logger.debug(f"Filter record error: {rec_e}")
+
         return V5SignalResult(
             pair=pair, timeframe=timeframe, timestamp=now_str,
             anomaly_blocked=False, calendar_blocked=False, drift_blocked=False,
@@ -657,6 +712,19 @@ class V5OrchestratorFinal:
         self.var_engine.update_balance(self.governor.current_balance)
         self.var_engine.add_daily_return(pnl_usd / max(self.governor.current_balance, 1))
         self.var_engine.add_trade_pnl(pnl_usd)
+
+        # Feed circuit breaker
+        try:
+            risk_amount = 2.0  # 2% of $100
+            circuit_breaker.record_outcome(r_multiple, risk_amount)
+        except Exception as e:
+            logger.debug(f"Circuit breaker update: {e}")
+
+        # Feed agent weight adjuster
+        try:
+            agent_adjuster.record(agent_name, outcome, r_multiple)
+        except Exception as e:
+            logger.debug(f"Agent adjuster record: {e}")
 
         self.learning.update(
             pair=pair, agent_name=agent_name, direction=direction,

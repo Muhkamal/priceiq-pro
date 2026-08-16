@@ -12,6 +12,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from .weekend_gap_handler import filter_weekend_gaps, get_market_status
+
 from app.services.ml.signal_outcome_predictor import outcome_predictor
 
 DB_PATH = Path("signal_performance_db.json")

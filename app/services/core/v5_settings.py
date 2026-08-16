@@ -53,7 +53,7 @@ class V5Settings:
     """
 
     # ── Account ───────────────────────────────────────────────
-    ACCOUNT_BALANCE:     float = field(default_factory=lambda: _env("ACCOUNT_BALANCE",    10_000.0, float))
+    ACCOUNT_BALANCE:     float = field(default_factory=lambda: _env("ACCOUNT_BALANCE",    100.0, float))
     RISK_PERCENT:        float = field(default_factory=lambda: _env("RISK_PERCENT",        2.0,     float))
     TARGET_VOL_PCT:      float = field(default_factory=lambda: _env("TARGET_VOL_PCT",      0.02,    float))
     MAX_DRAWDOWN_PCT:    float = field(default_factory=lambda: _env("MAX_DRAWDOWN",        0.10,    float))

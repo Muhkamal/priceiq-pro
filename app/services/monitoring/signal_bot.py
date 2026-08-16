@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio, json, logging, os
+from datetime import datetime, timezone
 from typing import Dict, List, Set
 import httpx
 
@@ -9,6 +10,7 @@ BOT_TOKEN     = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 ADMIN_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 CHANNEL_ID    = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 SUBS_FILE     = "subscribers.json"
+
 
 class SubscriberStore:
     def __init__(self):
@@ -87,6 +89,11 @@ class TelegramSignalBot:
         logger.info(f"Broadcast: {sent}/{len(targets)} delivered")
         return {"sent": sent, "total": len(targets)}
 
+    async def send_to_channel(self, text: str) -> bool:
+        if not CHANNEL_ID:
+            return False
+        return await self.send(str(CHANNEL_ID), text)
+
     async def broadcast_signal(self, result) -> Dict:
         self._signal_count += 1
         direction = getattr(result, "direction", "")
@@ -103,22 +110,50 @@ class TelegramSignalBot:
 
         emoji     = "🟢" if direction == "buy" else "🔴"
         reg_emoji = {"trending": "📈", "ranging": "↔️", "volatile": "⚡"}.get(regime, "❓")
-        decimals  = 2 if "XAU" in pair else 5
+        decimals  = 2 if "XAU" in pair else (0 if "BTC" in pair else 5)
+
+        try:
+            from app.services.core.signal_validity import validity_checker
+            validity = validity_checker.check(
+                pair=pair, signal_entry=entry, signal_sl=sl,
+                current_price=entry, signal_time=datetime.now(timezone.utc),
+                bars_since_signal=0,
+            )
+            valid_emoji = "🟢" if validity["valid"] else "🔴"
+            action_text = validity["action"].replace("_", " ").upper()
+        except Exception:
+            validity = {"valid": True, "action": "enter_now", "reason": "N/A"}
+            valid_emoji = "🟡"
+            action_text = "ENTER NOW"
+
+        limit_line = ""
+        fvg_entry = getattr(result, "_fvg_entry", None)
+        if fvg_entry and fvg_entry != entry:
+            limit_line = f"\n🎯 <b>SET PENDING ORDER</b>\nLimit: <code>{fvg_entry:.{decimals}f}</code>"
 
         msg = (
             f"{emoji} <b>SIGNAL #{self._signal_count}: {pair}</b>\n\n"
             f"Direction: <b>{direction.upper()}</b>\n"
             f"Confidence: <b>{conf:.0%}</b>\n"
             f"Agent: {agent}\n"
-            f"Regime: {reg_emoji} {regime.title()}\n\n"
-            f"📊 <b>Trade Levels</b>\n"
+            f"Regime: {reg_emoji} {regime.title()}"
+            f"{limit_line}\n\n"
+            f"📊 <b>Trade Levels (MT5 Mobile)</b>\n"
             f"Entry:  <code>{entry:.{decimals}f}</code>\n"
             f"SL:     <code>{sl:.{decimals}f}</code>\n"
             f"TP1:    <code>{tp1:.{decimals}f}</code>\n"
             f"TP2:    <code>{tp2:.{decimals}f}</code>\n"
-            f"Lots:   {lots}\n"
-            f"EV:     {ev:+.2f}R\n\n"
-            f"⚠️ <i>Trade at your own risk.</i>\n"
+            f"Lots:   <code>0.01</code>\n"
+            f"{valid_emoji} <b>Validity: {action_text}</b>\n"
+            f"<i>{validity.get('reason', '')}</i>\n\n"
+            f"⚡ <b>Quick Setup</b>\n"
+            f"1. New Order → {pair}\n"
+            f"2. Volume: 0.01\n"
+            f"3. SL: {sl:.{decimals}f}\n"
+            f"4. TP: {tp1:.{decimals}f}\n"
+            f"5. Tap {direction.upper()}\n\n"
+            f"⏱ <b>Valid for: 2–3 bars</b>\n"
+            f"⚠️ <i>If price moves >25% toward SL before you enter, SKIP this signal.</i>\n\n"
             f"📡 <i>@daethdevilbot — #{self._signal_count}</i>"
         )
         return await self.broadcast(msg)
@@ -140,7 +175,14 @@ class TelegramSignalBot:
         )
         await self.broadcast(msg)
 
-    # --- USER COMMANDS ---
+    async def send_expiry_notice(self, pair: str, signal_id: int, reason: str):
+        msg = (
+            f"⏱ <b>SIGNAL #{signal_id} EXPIRED</b>\n"
+            f"Pair: {pair}\n"
+            f"Reason: {reason}\n\n"
+            f"<i>Do not enter this trade. Wait for next signal.</i>"
+        )
+        await self.send_to_channel(msg)
 
     async def handle_start(self, chat_id: str, username: str = ""):
         name = f"@{username}" if username else "there"
@@ -159,7 +201,7 @@ class TelegramSignalBot:
                 f"✅ <b>Subscribed!</b>\n\n"
                 f"You'll receive signals for:\n"
                 f"XAUUSD • EURUSD • GBPUSD\n"
-                f"USDJPY • USDCHF • AUDUSD • BTCUSD\n\n"
+                f"USDCHF • AUDUSD • BTCUSD\n\n"
                 f"Subscribers: {self._store.count()}\n"
                 f"Type /unsubscribe to stop."
             )
@@ -187,8 +229,6 @@ class TelegramSignalBot:
             f"Wins: {self._win_count} | Losses: {self._loss_count}\n"
             f"Subscribers: {self._store.count()}"
         )
-
-    # --- PERFORMANCE TRACKER COMMANDS ---
 
     async def handle_leaderboard(self, chat_id: str):
         from app.services.learning.signal_performance_tracker import tracker
@@ -228,9 +268,7 @@ class TelegramSignalBot:
         if not pairs:
             await self.send(chat_id, "📊 No resolved signals yet. First signals need to hit SL or TP.")
             return
-        lines = [
-            f"📊 <b>Overall Performance</b>\n",
-        ]
+        lines = [f"📊 <b>Overall Performance</b>\n"]
         for pair, st in pairs.items():
             lines.append(
                 f"<b>{pair}</b>: {st['win_rate']:.0%} WR | {st['avg_pnl_r']:+.2f}R avg | n={st['count']}"
@@ -273,8 +311,6 @@ class TelegramSignalBot:
             f"⚠️ <i>Trading involves risk.</i>"
         )
 
-    # --- POLLING ---
-
     async def start_polling(self):
         self._running = True
         logger.info("Signal bot polling started")
@@ -313,8 +349,10 @@ class TelegramSignalBot:
                 await self.handle_subscribe(chat_id, username)
             elif text == "/unsubscribe":
                 await self.handle_unsubscribe(chat_id)
-            elif text in ("/stats", "/performance"):
+            elif text == "/stats":
                 await self.handle_stats(chat_id)
+            elif text == "/performance":
+                await self.handle_performance(chat_id)
             elif text == "/help":
                 await self.handle_help(chat_id)
             elif text == "/leaderboard":
@@ -325,8 +363,6 @@ class TelegramSignalBot:
                     await self.handle_pairstats(chat_id, parts[1].upper())
                 else:
                     await self.send(chat_id, "Usage: /pairstats XAUUSD")
-            elif text == "/performance":
-                await self.handle_performance(chat_id)
             elif text == "/modelstats":
                 await self.handle_modelstats(chat_id)
             else:
@@ -341,5 +377,6 @@ class TelegramSignalBot:
             "signals_sent": self._signal_count,
             "win_rate":     round(self._win_count / total, 3) if total else None,
         }
+
 
 signal_bot = TelegramSignalBot()
