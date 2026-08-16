@@ -111,37 +111,13 @@ async def trading_loop():
                             if result and result.signal_fired:
                                 _signal_cooldown[pair] = datetime.now(timezone.utc)
                                 logger.info(f"SIGNAL: {pair} {result.direction} conf={result.confidence:.0%}")
+
                                 try:
                                     await tracker.record(result)
                                 except Exception as te:
                                     logger.warning(f"Tracker record error: {te}")
-                                try:
-                                    tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
-                                    tg_chat = os.getenv("TELEGRAM_CHAT_ID")
-                                    if tg_token and tg_chat:
-                                        decimals = 2 if "XAU" in pair else 5
-                                        msg = "\n".join([
-                                            f"SIGNAL: {pair}",
-                                            f"Direction: {result.direction.upper()}",
-                                            f"Confidence: {result.confidence:.0%}",
-                                            f"Agent: {result.agent_used}",
-                                            f"Regime: {result.regime}",
-                                            f"Entry: {result.fill_price:.{decimals}f}",
-                                            f"SL: {result.stop_loss:.{decimals}f}",
-                                            f"TP1: {result.take_profit_1:.{decimals}f}",
-                                        ])
-                                        async with httpx.AsyncClient(timeout=10) as client:
-                                            await client.post(
-                                                f"https://api.telegram.org/bot{tg_token}/sendMessage",
-                                                json={"chat_id": tg_chat, "text": msg, "parse_mode": "HTML"}
-                                            )
-                                        logger.info("Telegram alert sent")
-                                    else:
-                                        logger.warning("Telegram not configured (missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID)")
-                                except Exception as tg_e:
-                                    logger.warning(f"Telegram alert failed: {tg_e}")
-                                
-                                # --- PUBLIC BROADCAST (channel + subscribers) ---
+
+                                # --- PUBLIC BROADCAST (channel + subscribers + admin) ---
                                 try:
                                     await signal_bot.broadcast_signal(result)
                                     logger.info("Public signal broadcast sent")
@@ -175,7 +151,10 @@ async def trading_loop():
 
                 # --- Bar time stops ---
                 try:
-                    if hasattr(v5, "trade_manager") and hasattr(v5, "_scan_count"):
+                    if hasattr(v5, "trade_manager"):
+                        if not hasattr(v5, '_scan_count'):
+                            v5._scan_count = 0
+                        v5._scan_count = scan_count
                         current_prices = {}
                         for p in watchlist:
                             try:
@@ -188,7 +167,6 @@ async def trading_loop():
                 except Exception as e:
                     logger.warning(f"Bar stop check: {e}")
 
-                v5._scan_count = scan_count
                 logger.info(f"Scan #{scan_count} complete")
         except Exception as e:
             logger.error(f"Trading loop error: {e}")
@@ -302,6 +280,10 @@ except Exception as e:
 async def health():
     return {"status": "healthy", "version": "5.0.0",
             "timestamp": datetime.now(timezone.utc).isoformat()}
+
+@app.head("/health")
+async def health_head():
+    return {"status": "healthy"}
 
 @app.get("/")
 async def root():
