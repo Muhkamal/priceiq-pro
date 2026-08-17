@@ -565,7 +565,7 @@ class V5OrchestratorFinal:
             idx = len(candles) - 1
             trend_strength = getattr(signal, "market_structure", {}).get("trend_strength", 0.5)
             mae_conf = mae_confidence.score(
-                current, candles, idx, mae_sr_levels if 'mae_sr_levels' in dir() else [],
+                current, candles, idx, locals().get('mae_sr_levels', []),
                 pattern_type=str(getattr(signal, "pattern", "unknown")),
                 trend_strength=trend_strength,
                 mtf_aligned="MTF" in signal.reasoning
