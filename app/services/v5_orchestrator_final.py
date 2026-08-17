@@ -367,7 +367,7 @@ class V5OrchestratorFinal:
                                    reason="Insufficient candles")
 
         # ── Gate -3.5: Bar Closed Guard (prevent mid-candle signals) ──
-        if not bar_guard.check(candles):
+        if not mae_bar_guard.check(candles):
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime="blocked", reason="Bar not yet closed — waiting for 1H candle close", conf_b=True)
 
