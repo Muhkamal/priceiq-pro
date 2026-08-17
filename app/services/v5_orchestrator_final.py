@@ -360,6 +360,11 @@ class V5OrchestratorFinal:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    reason="Insufficient candles")
 
+        # ── Gate -3.5: Bar Closed Guard (prevent mid-candle signals) ──
+        if not bar_guard.check(candles):
+            return self._no_signal(pair, timeframe, now_str, session_name,
+                                   regime="blocked", reason="Bar not yet closed — waiting for 1H candle close", conf_b=True)
+
         # ── Gate -3: Daily Circuit Breaker ────────────────────
         can_trade, cb_reason = circuit_breaker.can_trade()
         if not can_trade:
@@ -466,6 +471,16 @@ class V5OrchestratorFinal:
         signal    = orch_result.selected_signal
         agent     = orch_result.selected_agent
         direction = signal.direction
+
+        # ── ENHANCED STRUCTURE: Order Blocks + Swing Levels ──
+        try:
+            ob_levels = order_block_detector.find_blocks(candles)
+            psych_levels = order_block_detector.find_psychological_levels(candles, pair)
+            # Store for potential use in reasoning
+            if ob_levels:
+                result.reasoning += f" | OB_levels:{len(ob_levels)}"
+        except Exception as e:
+            logger.debug(f"Order block error: {e}")
 
         # ── SMART STOP RECALCULATION ──
         try:

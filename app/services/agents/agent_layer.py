@@ -702,6 +702,7 @@ class AgentOrchestrator:
 
     def __init__(self):
         self.agents = {
+            # "BreakoutPullbackAgent":  breakout_pullback_agent,  # Enable after 30 signals
             "TrendAgent":             TrendAgent(),
             "MeanReversionAgent":     MeanReversionAgent(),
             "BreakoutAgent":          BreakoutAgent(),
