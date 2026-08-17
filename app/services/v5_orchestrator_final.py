@@ -481,13 +481,24 @@ class V5OrchestratorFinal:
             signal.tp2_distance = smart["tp2_distance"]
             signal.reasoning += f" | SmartStop:{smart['method']} RR={smart['rr']}"
             logger.info(f"SmartStop: {pair} {direction} SL={smart['sl']} structure@{smart['structure_level']}")
+            
+            # ── TP ORDERING GUARD ──
+            # Ensure TP2 is always further from entry than TP1
+            if direction == "buy" and signal.take_profit_2 <= signal.take_profit_1:
+                signal.take_profit_2 = round(signal.take_profit_1 + smart["sl_distance"] * 1.5, 5)
+                signal.reasoning += " | TP2_reordered"
+                logger.warning(f"TP2 reorder fix: {pair} buy TP2→{signal.take_profit_2}")
+            elif direction == "sell" and signal.take_profit_2 >= signal.take_profit_1:
+                signal.take_profit_2 = round(signal.take_profit_1 - smart["sl_distance"] * 1.5, 5)
+                signal.reasoning += " | TP2_reordered"
+                logger.warning(f"TP2 reorder fix: {pair} sell TP2→{signal.take_profit_2}")
         except Exception as e:
             logger.warning(f"SmartStop error: {e}")
 
         # ── MTF CONFLUENCE FILTER ──
         try:
             candles_4h = await self._get_4h_candles(pair)
-            if candles_4h:
+            if candles_4h and len(candles_4h) >= 50:
                 allow, boost, mtf_reason = mtf_filter.check(direction, candles_4h, pair)
                 if not allow:
                     return self._no_signal(pair, timeframe, now_str, session_name,
@@ -495,8 +506,11 @@ class V5OrchestratorFinal:
                 if boost != 0:
                     signal.confidence = min(1.0, max(0.0, signal.confidence + boost))
                     signal.reasoning += f" | {mtf_reason}"
+            else:
+                signal.reasoning += " | MTF:skipped(no_4h_data)"
         except Exception as e:
             logger.warning(f"MTF filter error: {e}")
+            signal.reasoning += " | MTF:error_bypass" 
 
         # ── FVG ENTRY OPTIMIZATION ──
         try:

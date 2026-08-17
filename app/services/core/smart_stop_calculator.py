@@ -142,6 +142,7 @@ class SmartStopCalculator:
             "tp2": tp2,
             "sl_distance": round(sl_dist, decimals),
             "tp1_distance": round(tp1_dist, decimals),
+            "tp2_distance": round(tp2_dist, decimals),
             "rr": rr,
             "method": f"structure+ATR({cfg['atr_mult']}x)+{session}",
             "structure_level": round(structure, decimals),

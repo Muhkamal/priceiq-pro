@@ -15,6 +15,11 @@ from fastapi.middleware.cors import CORSMiddleware
 _signal_cooldown: dict = {}
 SIGNAL_COOLDOWN_MIN = 60
 
+# Simple candle cache: pair -> (timestamp, candles)
+# Prevents re-fetching the same 1h bar within 5 minutes
+_CANDLE_CACHE: dict = {}
+CACHE_TTL_SECONDS = 240  # 4 minutes
+
 async def trading_loop():
     # -- Import here to avoid circular import at module level --
     from app.services.risk.overnight_gap_manager import OvernightGapManager, HIGH_GAP_PAIRS
