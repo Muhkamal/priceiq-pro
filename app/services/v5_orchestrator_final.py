@@ -121,6 +121,12 @@ try:
 except ImportError:
     _MAE_AVAILABLE = False
 
+# ── M.A.E. Engine v2.1 additions ──
+from .core.mae_spread_slippage import realistic_entry, realistic_cost_summary
+from .core.mae_enhanced_sr import enhanced_sr
+from .core.mae_confidence import mae_confidence
+from .core.mae_bar_guard import mae_bar_guard
+
 WATCHLIST = ["XAUUSD", "EURUSD", "GBPUSD", "USDCHF", "AUDUSD", "BTCUSD"]
 
 
@@ -365,6 +371,11 @@ class V5OrchestratorFinal:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime="blocked", reason="Bar not yet closed — waiting for 1H candle close", conf_b=True)
 
+        # ── Gate -3.5: M.A.E. Bar Closed Guard ─────────────────
+        if not mae_bar_guard.check(candles):
+            return self._no_signal(pair, timeframe, now_str, session_name,
+                                   regime="blocked", reason="M.A.E: Bar not yet closed — waiting for 1H candle close", conf_b=True)
+
         # ── Gate -3: Daily Circuit Breaker ────────────────────
         can_trade, cb_reason = circuit_breaker.can_trade()
         if not can_trade:
@@ -472,15 +483,16 @@ class V5OrchestratorFinal:
         agent     = orch_result.selected_agent
         direction = signal.direction
 
-        # ── ENHANCED STRUCTURE: Order Blocks + Swing Levels ──
+        # ── M.A.E. ENHANCED STRUCTURE: Order Blocks + Psych + Volume Profile ──
         try:
-            ob_levels = order_block_detector.find_blocks(candles)
-            psych_levels = order_block_detector.find_psychological_levels(candles, pair)
-            # Store for potential use in reasoning
-            if ob_levels:
-                result.reasoning += f" | OB_levels:{len(ob_levels)}"
+            mae_sr_levels = enhanced_sr.find_levels(candles, pair=pair)
+            ob_levels = [l for l in mae_sr_levels if "order_block" in l.get("type", "")]
+            psych_levels = [l for l in mae_sr_levels if l.get("type") == "psychological"]
+            vp_levels = [l for l in mae_sr_levels if l.get("type") == "volume_node"]
+            if mae_sr_levels:
+                signal.reasoning += f" | MAE_SR:{len(mae_sr_levels)}(OB{len(ob_levels)}/Psych{len(psych_levels)}/VP{len(vp_levels)})"
         except Exception as e:
-            logger.debug(f"Order block error: {e}")
+            logger.debug(f"M.A.E. structure error: {e}")
 
         # ── SMART STOP RECALCULATION ──
         try:
@@ -547,6 +559,24 @@ class V5OrchestratorFinal:
         except Exception as e:
             logger.debug(f"Agent weight error: {e}")
 
+        # ── M.A.E. Enhanced Confidence Scoring ──
+        try:
+            current = candles[-1]
+            idx = len(candles) - 1
+            trend_strength = getattr(signal, "market_structure", {}).get("trend_strength", 0.5)
+            mae_conf = mae_confidence.score(
+                current, candles, idx, mae_sr_levels if 'mae_sr_levels' in dir() else [],
+                pattern_type=str(getattr(signal, "pattern", "unknown")),
+                trend_strength=trend_strength,
+                mtf_aligned="MTF" in signal.reasoning
+            )
+            # Blend: 60% M.A.E. score, 40% post-agent-weight confidence
+            blended_conf = round(0.6 * mae_conf + 0.4 * signal.confidence, 3)
+            signal.reasoning += f" | MAE_conf:{mae_conf:.2f}→{blended_conf:.2f}"
+            signal.confidence = blended_conf
+        except Exception as e:
+            logger.debug(f"M.A.E. confidence error: {e}")
+
         # ── CORRELATION FILTER (signal-level) ──
         try:
             corr_ok, blocked_by, corr_reason = self.corr_filter.check(pair)
@@ -590,6 +620,13 @@ class V5OrchestratorFinal:
 
         # ── Gate 8: Risk governor ─────────────────────────────
         entry = candles[-1].close
+
+        # ── M.A.E. Realistic Entry (spread + slippage) ──
+        mae_entry = realistic_entry(entry, direction, pair)
+        entry_slippage = mae_entry - entry
+        signal.reasoning += f" | MAE_entry:{mae_entry:.5f}(was:{entry:.5f},cost:{entry_slippage:.5f})"
+        entry = mae_entry  # use realistic price for sizing & execution
+
         atr   = calculate_atr(candles) if _MAE_AVAILABLE else signal.stop_distance / 1.5
 
         sizing = self.vol_sizer.compute_lots(
