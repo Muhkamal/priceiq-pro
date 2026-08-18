@@ -1,6 +1,6 @@
 """
-M.A.E. Bar Closed Guard
-Prevents signal generation on incomplete 1H candles.
+M.A.E. Bar Closed Guard — prevents look-ahead bias.
+A 1H candle is 'closed' if it finished at least 2 minutes ago.
 """
 
 from datetime import datetime, timezone
@@ -10,8 +10,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 class BarClosedGuard:
-    def __init__(self, timeframe: str = "1h"):
+    def __init__(self, timeframe: str = "1h", settle_seconds: int = 120):
         self.timeframe = timeframe
+        self.settle_seconds = settle_seconds  # 2 min default for 1H
 
     def is_bar_closed(self, candles: List[Any]) -> bool:
         if not candles:
@@ -21,7 +22,7 @@ class BarClosedGuard:
         if ts is None:
             ts = getattr(latest, "time", None)
         if ts is None:
-            return True  # conservative: if no ts, assume closed
+            return True  # no timestamp — assume closed
 
         if isinstance(ts, str):
             try:
@@ -31,20 +32,25 @@ class BarClosedGuard:
 
         now = datetime.now(timezone.utc)
         age_seconds = (now - ts).total_seconds()
-        if age_seconds > 3000:  # > 50 minutes old
-            return True
-        if age_seconds < 0:
-            return False
 
-        minute = now.minute
-        if 0 <= minute <= 5 or 55 <= minute <= 59:
+        # Normal case: candle is old enough → closed
+        if age_seconds >= self.settle_seconds:
             return True
+
+        # Clock skew / timezone mismatch: if timestamp is >1h in future,
+        # data source is wrong — allow but warn
+        if age_seconds < -3600:
+            logger.warning(f"BarClosedGuard: timestamp {ts} is >1h ahead of server {now}. Allowing (timezone mismatch).")
+            return True
+
+        # Future or too fresh → reject
+        if age_seconds < 0:
+            logger.info(f"BarClosedGuard: rejecting — candle timestamp {ts} is {abs(age_seconds):.0f}s in future")
+        else:
+            logger.info(f"BarClosedGuard: rejecting — candle only {age_seconds:.0f}s old, waiting {self.settle_seconds}s")
         return False
 
     def check(self, candles: List[Any]) -> bool:
-        ok = self.is_bar_closed(candles)
-        if not ok:
-            logger.info("MAE BarClosedGuard: rejecting signal — candle not yet closed")
-        return ok
+        return self.is_bar_closed(candles)
 
 mae_bar_guard = BarClosedGuard()
