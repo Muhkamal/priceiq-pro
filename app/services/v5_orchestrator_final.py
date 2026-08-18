@@ -305,6 +305,19 @@ class V5OrchestratorFinal:
     # HELPERS
     # ────────────────────────────────────────────────────────
 
+    async def _get_4h_candles(self, pair: str):
+        """Fetch 4H candles for MTF filter. Derives from cached 1H."""
+        try:
+            from .core.candle_cache import CandleCache
+            cache = CandleCache()
+            candles_1h = cache.get(pair, "1h", limit=400)
+            if not candles_1h or len(candles_1h) < 200:
+                return None
+            candles_4h = candles_1h[::4]
+            return candles_4h[-100:] if len(candles_4h) >= 50 else None
+        except Exception:
+            return None
+
     def _refresh_weights(self, regime: str, thompson: bool = True):
         weights = (
             self.regime_learner.thompson_sample(regime) if thompson
