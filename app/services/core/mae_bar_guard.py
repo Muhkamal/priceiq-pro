@@ -40,7 +40,7 @@ class BarClosedGuard:
         # Clock skew / timezone mismatch: if timestamp is >1h in future,
         # data source is wrong — allow but warn
         if age_seconds < -3600:
-            logger.warning(f"BarClosedGuard: timestamp {ts} is >1h ahead of server {now}. Allowing (timezone mismatch).")
+            logger.info(f"BarClosedGuard: timestamp {ts} is >1h ahead of server {now}. Allowing (timezone mismatch).")
             return True
 
         # Future or too fresh → reject
