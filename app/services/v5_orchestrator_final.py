@@ -371,11 +371,6 @@ class V5OrchestratorFinal:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime="blocked", reason="Bar not yet closed — waiting for 1H candle close", conf_b=True)
 
-        # ── Gate -3.5: M.A.E. Bar Closed Guard ─────────────────
-        if not mae_bar_guard.check(candles):
-            return self._no_signal(pair, timeframe, now_str, session_name,
-                                   regime="blocked", reason="M.A.E: Bar not yet closed — waiting for 1H candle close", conf_b=True)
-
         # ── Gate -3: Daily Circuit Breaker ────────────────────
         can_trade, cb_reason = circuit_breaker.can_trade()
         if not can_trade:
