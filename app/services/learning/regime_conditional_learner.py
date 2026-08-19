@@ -1,11 +1,7 @@
 """
-PriceIQ Pro — Regime-Conditional Learning v1.0
+PriceIQ Pro — Regime-Conditional Learning v1.1 (CRYPTO/GOLD BOOST)
 
 Replaces the global weight update in learning_loop.py with per-regime weights.
-
-Problem with global weights:
-    TrendAgent wins in trending markets but loses in ranging.
-    Global averaging penalises TrendAgent unfairly in mixed regimes.
 
 Solution:
     Store a weight table:  agent × regime → weight
@@ -17,20 +13,10 @@ Also implements Thompson Sampling for exploration:
     sample from a Beta distribution to occasionally explore lower-weight
     agents — prevents premature convergence.
 
-Usage:
-    rl = RegimeConditionalLearner()
-
-    # After trade closes:
-    rl.update("TrendAgent", "trending", outcome="win")
-    rl.update("MeanReversionAgent", "ranging", outcome="loss")
-
-    # At agent selection time, pass regime:
-    weights = rl.get_weights_for_regime("trending")
-    orchestrator.update_weights(weights)
-
-    # Thompson sampling (recommended):
-    sampled = rl.thompson_sample("trending")
-    # → {"TrendAgent": 1.42, "MeanReversionAgent": 0.61, ...}
+v1.1 Update:
+    ✅ Added `pair` argument to thompson_sample() and get_weights_for_regime()
+    ✅ Boosts Breakout/Trend agents for BTC/Gold in volatile/trending regimes
+    ✅ Boosts MeanReversion for Gold in ranging regimes
 """
 
 from __future__ import annotations
@@ -98,14 +84,6 @@ class RegimeCell:
 class RegimeConditionalLearner:
     """
     Per-regime, per-agent weight table using Beta distribution counts.
-
-    Table shape: len(AGENTS) × len(REGIMES)
-    Each cell is a RegimeCell with independent win/loss counts.
-
-    Regime-conditional selection:
-        In trending regime  → use trending column weights
-        In ranging regime   → use ranging column weights
-        In volatile regime  → use volatile column weights
     """
 
     def __init__(self, persistence_path: str = "regime_weights.json"):
@@ -149,19 +127,31 @@ class RegimeConditionalLearner:
 
     # ── Query ────────────────────────────────────────────────
 
-    def get_weights_for_regime(self, regime: str) -> Dict[str, float]:
+    def get_weights_for_regime(self, regime: str, pair: str = None) -> Dict[str, float]:
         """
         Point-estimate weights for the given regime.
         Use for deterministic selection (exploitation only).
         """
-        return {
+        weights = {
             agent: self._table[agent].get(
                 regime, RegimeCell(agent=agent, regime=regime)
             ).weight
             for agent in self._table
         }
+        
+        # ═══ NEW: Pair-specific overrides for high-volatility assets ═══
+        if pair and pair.upper() in ("BTCUSD", "XAUUSD", "ETHUSD", "XAGUSD"):
+            if regime == "volatile":
+                weights["BreakoutAgent"] = max(weights.get("BreakoutAgent", 0.10), 3.50)
+                weights["TrendAgent"]    = max(weights.get("TrendAgent", 0.10), 3.00)
+            elif regime == "trending":
+                weights["TrendAgent"] = max(weights.get("TrendAgent", 0.10), 3.50)
+            elif regime == "ranging" and pair.upper() in ("XAUUSD", "XAGUSD"):
+                weights["MeanReversionAgent"] = max(weights.get("MeanReversionAgent", 0.10), 3.00)
+                
+        return weights
 
-    def thompson_sample(self, regime: str) -> Dict[str, float]:
+    def thompson_sample(self, regime: str, pair: str = None) -> Dict[str, float]:
         """
         Thompson-sampled weights for the given regime.
         Use for agent selection — explores uncertain agents.
@@ -173,6 +163,20 @@ class RegimeConditionalLearner:
             raw    = cell.thompson_sample()
             scaled = WEIGHT_FLOOR + raw * (WEIGHT_CEILING - WEIGHT_FLOOR)
             samples[agent] = round(scaled, 4)
+            
+        # ═══ NEW: Pair-specific overrides for high-volatility assets ═══
+        if pair and pair.upper() in ("BTCUSD", "XAUUSD", "ETHUSD", "XAGUSD"):
+            if regime == "volatile":
+                # Boost Breakout and Trend agents for crypto/gold in volatile markets
+                samples["BreakoutAgent"] = max(samples.get("BreakoutAgent", 0.10), 3.50)
+                samples["TrendAgent"]    = max(samples.get("TrendAgent", 0.10), 3.00)
+            elif regime == "trending":
+                # Boost Trend agent
+                samples["TrendAgent"] = max(samples.get("TrendAgent", 0.10), 3.50)
+            elif regime == "ranging" and pair.upper() in ("XAUUSD", "XAGUSD"):
+                # Gold/Silver mean-reverts well in ranging markets
+                samples["MeanReversionAgent"] = max(samples.get("MeanReversionAgent", 0.10), 3.00)
+                
         return samples
 
     def get_full_table(self) -> Dict[str, Any]:

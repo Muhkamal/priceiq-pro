@@ -1,71 +1,14 @@
 """
-PriceIQ Pro — V5 Master Orchestrator v3.0 (FINAL)
+PriceIQ Pro — V5 Master Orchestrator v3.0 (FINAL) + v5.4 Upgrades
 
-Wires every component built across all sessions into one system.
-
-Complete component list:
-    ── ML ──
-    RegimeClassifier          XGBoost probabilistic regime detection
-    FeatureDriftMonitor       PSI-based silent degradation detection
-    WinProbabilityCalibrator  Empirical win probs per agent/regime/conf
-    SyntheticDataAugmenter    SMOTE augmentation for class imbalance
-    RegimeTransitionModel     Markov chain regime shift prediction
-
-    ── Agents ──
-    AgentOrchestrator         4 competing agents (Trend/MR/Breakout/Trap)
-    SignalConflictResolver    Agent disagreement → size/confidence adj
-
-    ── Learning ──
-    LearningLoop              Global adaptive weights + pair thresholds
-    RegimeConditionalLearner  Per-regime per-agent Thompson sampling
-
-    ── Risk ──
-    RiskGovernor              Drawdown/loss streak hard stops
-    DynamicCorrelationEstimator Live EWM correlation
-    VolatilityTargetedSizer   Kelly + vol-scaled position sizing
-    VaREngine                 Historical/MC/Parametric VaR + heat
-
-    ── Core ──
-    EconomicCalendar          News blackout filter
-    TradeManager              TP1/TP2/TP3 + trail + BE management
-    TradeJournal              Rich annotated trade log
-    CandleCache               TTL cache — no redundant API calls
-
-    ── Execution ──
-    ExecutionIntelligence     Session-aware slippage model
-
-    ── Monitoring ──
-    SystemMonitor             Telegram alerts + health
-    AnomalyDetector           ATR/volume/gap spike gate
-
-    ── Research ──
-    WalkForwardEngine         Full stack backtest
-    ParameterSensitivityTester Robustness sweep
-    MonteCarloEquityCurve     Bootstrap equity distribution
-
-    ── API ──
-    v5_router                 FastAPI REST dashboard
-
-Decision flow (every signal cycle):
-    0. CandleCache          → skip broker if data fresh
-    1. AnomalyDetector      → block on NFP spike / gap / corruption
-    2. EconomicCalendar     → block on news blackout window
-    3. FeatureDriftMonitor  → block if ML model has degraded
-    4. RegimeClassifier     → probabilistic regime (trending/ranging/volatile)
-    5. RegimeTransitionModel→ size down if regime shift imminent
-    6. AgentOrchestrator    → Thompson-sampled regime-conditional weights
-    7. SignalConflictResolver→ agent disagreement → conf adj + size mult
-    8. WinProbabilityCalibrator → real win prob replacing hardcoded priors
-    9. Negative EV gate     → block if EV < 0
-    10. Adaptive confidence  → pair-level adaptive threshold
-    11. RiskGovernor         → drawdown / loss streak / exposure hard stops
-    12. DynamicCorrelation   → live correlation gate
-    13. VaREngine            → portfolio heat gate
-    14. VolatilityTargetedSizer → Kelly + vol-scaled lots
-    15. ExecutionIntelligence → slippage-adjusted fill
-    16. TradeManager         → register for active management
-    17. TradeJournal         → record full signal context
-    18. Telegram alert
+Integrates ALL M.A.E. Engine v2.1 + v5.4 institutional upgrades:
+    ✅ Volatile regime override for BTC/Gold
+    ✅ MAE/MFE excursion tracking (post-trade analytics)
+    ✅ Institutional performance metrics (Sharpe/Sortino/PF)
+    ✅ StatArb pairs monitor (EURUSD/GBPUSD etc.)
+    ✅ Fundamentals gate (DXY/US10Y/BTC funding)
+    ✅ Bulletproof tp2_distance handling
+    ✅ MAE tags visible in Telegram reasoning
 """
 
 from __future__ import annotations
@@ -93,19 +36,19 @@ from .risk.hybrid_correlation          import HybridCorrelationEstimator as Dyna
 from .risk.volatility_sizer            import VolatilityTargetedSizer
 from .risk.var_engine_v2               import VaREngine
 from .core.economic_calendar           import EconomicCalendar
-from .core.trade_manager_v2               import TradeManager
+from .core.trade_manager_v2            import TradeManager
 from .core.trade_journal               import TradeJournal, JournalEntry
 from .core.candle_cache                import CandleCache
 from .execution.execution_intelligence import ExecutionIntelligence
 from .core.smart_stop_calculator       import smart_stop
 from .core.mtf_confluence_filter       import mtf_filter
-from .core.entry_optimizer              import entry_optimizer
-from .core.correlation_filter           import corr_filter
-from .core.daily_circuit_breaker        import circuit_breaker
-from .core.fvg_optimizer                import fvg_optimizer
-from .core.exposure_manager             import exposure_manager
-from .learning.agent_weight_adjuster    import agent_adjuster
-from .learning.weekend_gap_handler      import get_market_status
+from .core.entry_optimizer             import entry_optimizer
+from .core.correlation_filter          import corr_filter
+from .core.daily_circuit_breaker       import circuit_breaker
+from .core.fvg_optimizer               import fvg_optimizer
+from .core.exposure_manager            import exposure_manager
+from .learning.agent_weight_adjuster   import agent_adjuster
+from .learning.weekend_gap_handler     import get_market_status
 from .monitoring.system_monitor        import SystemMonitor
 from .monitoring.anomaly_detector      import AnomalyDetector
 from .backtest.walk_forward            import WalkForwardEngine, BacktestResult
@@ -120,12 +63,32 @@ try:
     _MAE_AVAILABLE = True
 except ImportError:
     _MAE_AVAILABLE = False
+    def get_session_quality(dt): return ("london", 0.8)
+    def calculate_atr(candles): return 0.001
 
 # ── M.A.E. Engine v2.1 additions ──
 from .core.mae_spread_slippage import realistic_entry, realistic_cost_summary
 from .core.mae_enhanced_sr import enhanced_sr
 from .core.mae_confidence import mae_confidence
 from .core.mae_bar_guard import mae_bar_guard
+
+# ═══ NEW: v5.4 Institutional Upgrades ═══
+try:
+    from .core.mae_mfe_analyzer import mae_tracker
+except Exception:
+    mae_tracker = None
+try:
+    from .core.performance_analytics import perf_analytics
+except Exception:
+    perf_analytics = None
+try:
+    from .agents.stat_arb_agent import stat_arb
+except Exception:
+    stat_arb = None
+try:
+    from .core.fundamentals_gate import fundamentals_gate
+except Exception:
+    fundamentals_gate = None
 
 WATCHLIST = ["XAUUSD", "EURUSD", "GBPUSD", "USDCHF", "AUDUSD", "BTCUSD"]
 
@@ -137,7 +100,6 @@ class V5SignalResult:
     timeframe:        str
     timestamp:        str
 
-    # Gate results
     anomaly_blocked:  bool
     calendar_blocked: bool
     drift_blocked:    bool
@@ -147,7 +109,6 @@ class V5SignalResult:
     correlation_blocked: bool
     heat_blocked:     bool
 
-    # Signal state
     signal_fired:     bool
     direction:        Optional[str]
     agent_used:       Optional[str]
@@ -156,11 +117,10 @@ class V5SignalResult:
     regime_shift_risk: float
     conflict_score:   float
     confidence:       float
-    confidence_adj:   float      # from conflict resolver
+    confidence_adj:   float
     win_probability:  float
     expected_value:   float
 
-    # Execution
     fill_price:       Optional[float]
     stop_loss:        Optional[float]
     take_profit_1:    Optional[float]
@@ -173,7 +133,6 @@ class V5SignalResult:
     risk_score:       float
     portfolio_heat:   float
 
-    # Metadata
     reasoning:        str
     anomalies:        List[str]
     drift_warn:       bool
@@ -201,11 +160,7 @@ class V5SignalResult:
 
 
 class V5OrchestratorFinal:
-    """
-    PriceIQ Pro — Complete V5 System (Final).
-    Single process, handles 6–20 pairs.
-    For 20+ pairs, split regime_clf (CPU) to a worker process.
-    """
+    """PriceIQ Pro — Complete V5 System (Final + v5.4 upgrades)."""
 
     def __init__(
         self,
@@ -259,8 +214,7 @@ class V5OrchestratorFinal:
         )
 
         # ── Signal Gates & Filters ───────────────────────────
-        self.macro_gate        = None  # placeholder if macro module added later
-        # Lazy init — will be loaded on first use
+        self.macro_gate        = None
         self.news_gate         = None
         self.corr_filter       = corr_filter
         self.exposure_mgr      = exposure_manager
@@ -299,7 +253,7 @@ class V5OrchestratorFinal:
 
         # Bootstrap weights
         self._refresh_weights("trending")
-        logger.info("✅ V5 Final Orchestrator — all systems online")
+        logger.info("✅ V5 Final Orchestrator (v5.4) — all systems online")
 
     # ────────────────────────────────────────────────────────
     # HELPERS
@@ -371,41 +325,43 @@ class V5OrchestratorFinal:
         balance = account_balance or self.governor.current_balance
         now_dt  = current_dt or datetime.now(timezone.utc)
         now_str = now_dt.isoformat()
-        session_name, session_q = (
-            get_session_quality(now_dt) if _MAE_AVAILABLE else ("london", 0.8)
-        )
+        session_name, session_q = get_session_quality(now_dt)
 
         if len(candles) < 55:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    reason="Insufficient candles")
 
-        # ── Gate -3.5: Bar Closed Guard (prevent mid-candle signals) ──
+        # ── Gate -3.5: Bar Closed Guard ──────────────────────
         if not mae_bar_guard.check(candles):
             return self._no_signal(pair, timeframe, now_str, session_name,
-                                   regime="blocked", reason="Bar not yet closed — waiting for 1H candle close", conf_b=True)
+                                   regime="blocked",
+                                   reason="Bar not yet closed — waiting for 1H candle close",
+                                   conf_b=True)
 
-        # ── Gate -3: Daily Circuit Breaker ────────────────────
+        # ── Gate -3: Daily Circuit Breaker ───────────────────
         can_trade, cb_reason = circuit_breaker.can_trade()
         if not can_trade:
             logger.warning(f"CIRCUIT BREAKER: {cb_reason}")
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime="blocked", reason=cb_reason, risk_b=True)
 
-        # ── Gate -2: News Blackout ──────────────────────────────
+        # ── Gate -2: News Blackout ───────────────────────────
         from .core.news_blackout import news_blackout
         self.news_gate = news_blackout
         news_ok, news_reason = self.news_gate.check(pair)
         if not news_ok:
             return self._no_signal(pair, timeframe, now_str, session_name,
-                                   regime="blocked", reason=f"News blackout: {news_reason}", calendar_b=True)
+                                   regime="blocked",
+                                   reason=f"News blackout: {news_reason}",
+                                   calendar_b=True)
 
-        # ── Gate -1: Exposure Manager ───────────────────────────
+        # ── Gate -1: Exposure Manager ────────────────────────
         exp_ok, exp_reason = self.exposure_mgr.can_add(pair)
         if not exp_ok:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime="blocked", reason=exp_reason, risk_b=True)
 
-        # ── Gate 0: Anomaly ───────────────────────────────────
+        # ── Gate 0: Anomaly ──────────────────────────────────
         anomaly = self.anomaly_det.check(candles, pair)
         if anomaly.block_signals:
             await self.monitor.on_signal_blocked(pair, anomaly.reason)
@@ -413,14 +369,14 @@ class V5OrchestratorFinal:
                                    reason=anomaly.reason, anomaly_b=True,
                                    anomalies=anomaly.anomalies)
 
-        # ── Gate 1: Economic calendar ─────────────────────────
+        # ── Gate 1: Economic calendar ────────────────────────
         cal_check = self.calendar.check_blackout(pair, now_dt)
         if cal_check.blocked:
             await self.monitor.on_signal_blocked(pair, cal_check.reason)
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    reason=cal_check.reason, calendar_b=True)
 
-        # ── Gate 2: Feature drift ─────────────────────────────
+        # ── Gate 2: Feature drift ────────────────────────────
         regime_feats = self.regime_clf.extractor.extract(candles)
         drift_warn   = False
         if regime_feats:
@@ -441,18 +397,25 @@ class V5OrchestratorFinal:
             regime_pred = RegimePrediction("ranging", 0.2, 0.6, 0.2, 0.6, {})
             regime      = "ranging"
 
+        # ═══ NEW: Volatile regime override for BTC/Gold/GJ ═══
+        # High-ATR assets are often misclassified as "volatile" which blocks all
+        # agents. We override to "trending" so Breakout/Trend agents can evaluate.
+        if regime == "volatile" and pair.upper() in ("XAUUSD", "BTCUSD", "GBPJPY", "XAGUSD"):
+            logger.info(f"[REGIME OVERRIDE] {pair} classified as volatile → treating as trending")
+            regime = "trending"
+            regime_pred.trending = max(regime_pred.trending, 0.60)
+
         regime_probs = {
             "trending": round(regime_pred.trending, 3),
             "ranging":  round(regime_pred.ranging,  3),
             "volatile": round(regime_pred.volatile, 3),
         }
 
-        # Update transition model
         self.regime_transition.update(regime)
         shift_risk  = self.regime_transition.shift_risk(regime)
         trans_mult  = self.regime_transition.size_multiplier(regime)
 
-        # ── Gate 4: Agent orchestration ───────────────────────
+        # ── Gate 4: Agent orchestration ──────────────────────
         self._refresh_weights(regime, thompson=True)
         try:
             orch_result = self.orchestrator.run(candles, regime)
@@ -469,8 +432,7 @@ class V5OrchestratorFinal:
         signal    = orch_result.selected_signal
         agent     = orch_result.selected_agent
 
-        # ── DEFENSE-IN-DEPTH: Regime-fit gate ─────────────────
-        # Even if agent_layer.py regime-lock is bypassed, this catches it
+        # ── DEFENSE-IN-DEPTH: Regime-fit gate ────────────────
         if signal.regime_fit < 0.5:
             reason = f"REGIME BLOCK: {agent} fit={signal.regime_fit:.2f} < 0.50 in {regime} regime"
             logger.warning(f"[SAFETY] {pair}: {reason}")
@@ -478,7 +440,6 @@ class V5OrchestratorFinal:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime, reason=reason, conf_b=True)
 
-        # Log agent confidence for debugging
         logger.info(
             f"[DEBUG] {pair}: best agent={orch_result.selected_agent} "
             f"dir={orch_result.selected_signal.direction} "
@@ -491,7 +452,7 @@ class V5OrchestratorFinal:
         agent     = orch_result.selected_agent
         direction = signal.direction
 
-        # ── M.A.E. ENHANCED STRUCTURE: Order Blocks + Psych + Volume Profile ──
+        # ── M.A.E. ENHANCED STRUCTURE ────────────────────────
         try:
             mae_sr_levels = enhanced_sr.find_levels(candles, pair=pair)
             ob_levels = [l for l in mae_sr_levels if "order_block" in l.get("type", "")]
@@ -501,24 +462,26 @@ class V5OrchestratorFinal:
                 signal.reasoning += f" | MAE_SR:{len(mae_sr_levels)}(OB{len(ob_levels)}/Psych{len(psych_levels)}/VP{len(vp_levels)})"
         except Exception as e:
             logger.debug(f"M.A.E. structure error: {e}")
+            mae_sr_levels = []
 
-        # ── SMART STOP RECALCULATION ──
+        # ── SMART STOP RECALCULATION ─────────────────────────
         try:
             smart = smart_stop.calculate(
                 candles=candles, direction=direction, pair=pair,
                 session=session_name, entry_price=getattr(signal, "entry_price", None),
             )
-            signal.stop_loss = smart["sl"]
-            signal.take_profit_1 = smart["tp1"]
-            signal.take_profit_2 = smart["tp2"]
-            signal.stop_distance = smart["sl_distance"]
-            signal.tp1_distance = smart["tp1_distance"]
-            signal.tp2_distance = smart["tp2_distance"]
-            signal.reasoning += f" | SmartStop:{smart['method']} RR={smart['rr']}"
-            logger.info(f"SmartStop: {pair} {direction} SL={smart['sl']} structure@{smart['structure_level']}")
-            
+            signal.stop_loss      = smart["sl"]
+            signal.take_profit_1  = smart["tp1"]
+            signal.take_profit_2  = smart["tp2"]
+            signal.stop_distance  = smart["sl_distance"]
+            signal.tp1_distance   = smart["tp1_distance"]
+            # ═══ BULLETPROOF: safe .get() instead of [] access ═══
+            tp2_fallback = getattr(signal, "tp1_distance", 0.0) * 1.5
+            signal.tp2_distance = smart.get("tp2_distance", tp2_fallback)
+            signal.reasoning += f" | SmartStop:{smart.get('method', '?')} RR={smart.get('rr', 0)}"
+            logger.info(f"SmartStop: {pair} {direction} SL={smart['sl']} structure@{smart.get('structure_level', '?')}")
+
             # ── TP ORDERING GUARD ──
-            # Ensure TP2 is always further from entry than TP1
             if direction == "buy" and signal.take_profit_2 <= signal.take_profit_1:
                 signal.take_profit_2 = round(signal.take_profit_1 + smart["sl_distance"] * 1.5, 5)
                 signal.reasoning += " | TP2_reordered"
@@ -530,7 +493,7 @@ class V5OrchestratorFinal:
         except Exception as e:
             logger.warning(f"SmartStop error: {e}")
 
-        # ── MTF CONFLUENCE FILTER ──
+        # ── MTF CONFLUENCE FILTER ────────────────────────────
         try:
             candles_4h = await self._get_4h_candles(pair)
             if candles_4h and len(candles_4h) >= 50:
@@ -545,9 +508,9 @@ class V5OrchestratorFinal:
                 signal.reasoning += " | MTF:skipped(no_4h_data)"
         except Exception as e:
             logger.warning(f"MTF filter error: {e}")
-            signal.reasoning += " | MTF:error_bypass" 
+            signal.reasoning += " | MTF:error_bypass"
 
-        # ── FVG ENTRY OPTIMIZATION ──
+        # ── FVG ENTRY OPTIMIZATION ───────────────────────────
         try:
             fvg = self.fvg_opt.suggest_entry(candles, direction, pair)
             if fvg["use_fvg"]:
@@ -558,7 +521,7 @@ class V5OrchestratorFinal:
         except Exception as e:
             logger.debug(f"FVG error: {e}")
 
-        # ── AGENT WEIGHT ADJUSTMENT ──
+        # ── AGENT WEIGHT ADJUSTMENT ──────────────────────────
         try:
             raw_conf = signal.confidence
             signal.confidence = agent_adjuster.apply(agent, raw_conf)
@@ -567,25 +530,28 @@ class V5OrchestratorFinal:
         except Exception as e:
             logger.debug(f"Agent weight error: {e}")
 
-        # ── M.A.E. Enhanced Confidence Scoring ──
+        # ── M.A.E. Enhanced Confidence Scoring ───────────────
         try:
             current = candles[-1]
             idx = len(candles) - 1
-            trend_strength = getattr(signal, "market_structure", {}).get("trend_strength", 0.5)
+            trend_strength = getattr(signal, "market_structure", {})
+            if hasattr(trend_strength, "get"):
+                trend_strength = trend_strength.get("trend_strength", 0.5)
+            else:
+                trend_strength = 0.5
             mae_conf = mae_confidence.score(
                 current, candles, idx, locals().get('mae_sr_levels', []),
                 pattern_type=str(getattr(signal, "pattern", "unknown")),
                 trend_strength=trend_strength,
                 mtf_aligned="MTF" in signal.reasoning
             )
-            # Blend: 60% M.A.E. score, 40% post-agent-weight confidence
             blended_conf = round(0.6 * mae_conf + 0.4 * signal.confidence, 3)
             signal.reasoning += f" | MAE_conf:{mae_conf:.2f}→{blended_conf:.2f}"
             signal.confidence = blended_conf
         except Exception as e:
             logger.debug(f"M.A.E. confidence error: {e}")
 
-        # ── CORRELATION FILTER (signal-level) ──
+        # ── CORRELATION FILTER (signal-level) ────────────────
         try:
             corr_ok, blocked_by, corr_reason = self.corr_filter.check(pair)
             if not corr_ok:
@@ -594,12 +560,11 @@ class V5OrchestratorFinal:
         except Exception as e:
             logger.debug(f"Correlation filter error: {e}")
 
-        # ── Gate 5: Signal conflict resolution ────────────────
+        # ── Gate 5: Signal conflict resolution ───────────────
         conflict = self.conflict_resolver.evaluate(orch_result)
         if conflict.should_block:
             return self._no_signal(pair, timeframe, now_str, session_name,
-                                   regime=regime, reason=conflict.reason,
-                                   conf_b=True)
+                                   regime=regime, reason=conflict.reason, conf_b=True)
 
         # ── Gate 6: Calibrated win probability ───────────────
         win_prob  = self.win_prob_cal.get_win_probability(
@@ -617,23 +582,34 @@ class V5OrchestratorFinal:
                                    reason=f"Negative EV={ev:.3f} (WP={win_prob:.2f}, RR={rr1:.2f})",
                                    ev_b=True)
 
-        # ── Gate 7: Adaptive confidence threshold ─────────────
-        # SAFETY: hard floor at 0.50 — never trade below this
+        # ── Gate 7: Adaptive confidence threshold ────────────
         threshold = max(min(self.learning.get_confidence_threshold(pair), 0.60), 0.50)
+
+        # ═══ NEW: Fundamentals + StatArb confidence adjustments ═══
+        try:
+            adj_conf += fundamentals_gate.confidence_adjustment(pair, direction) if fundamentals_gate else 0.0
+        except Exception:
+            pass
+        try:
+            adj_conf += stat_arb.confidence_adjustment(pair, direction) if stat_arb else 0.0
+        except Exception:
+            pass
+        adj_conf = min(1.0, max(0.0, adj_conf))
+
         if adj_conf < threshold:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime,
                                    reason=f"Confidence {adj_conf:.2f} < threshold {threshold:.2f}",
                                    conf_b=True)
 
-        # ── Gate 8: Risk governor ─────────────────────────────
+        # ── Gate 8: Risk governor ────────────────────────────
         entry = candles[-1].close
 
-        # ── M.A.E. Realistic Entry (spread + slippage) ──
+        # ── M.A.E. Realistic Entry (spread + slippage) ───────
         mae_entry = realistic_entry(entry, direction, pair)
         entry_slippage = mae_entry - entry
         signal.reasoning += f" | MAE_entry:{mae_entry:.5f}(was:{entry:.5f},cost:{entry_slippage:.5f})"
-        entry = mae_entry  # use realistic price for sizing & execution
+        entry = mae_entry
 
         atr   = calculate_atr(candles) if _MAE_AVAILABLE else signal.stop_distance / 1.5
 
@@ -643,7 +619,6 @@ class V5OrchestratorFinal:
             current_price=entry,
         )
         lots = sizing.lots
-        # Compound size reductions
         lots = round(lots * anomaly.size_multiplier * conflict.size_multiplier * trans_mult
                      * cal_check.size_mult, 2)
         lots = max(0.01, lots)
@@ -657,10 +632,9 @@ class V5OrchestratorFinal:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime, reason=risk_dec.reason, risk_b=True)
         lots = risk_dec.adjusted_lots
-        # Hard override: always 0.01 micro lots for $100 account
-        lots = 0.01
+        lots = 0.01  # hard override: $100 account
 
-        # ── Gate 9: Dynamic correlation ───────────────────────
+        # ── Gate 9: Dynamic correlation ──────────────────────
         corr_check = self.corr_estimator.check_correlation_risk(
             pair=pair, direction=direction,
             open_positions=self.governor._open_positions, regime=regime,
@@ -669,7 +643,7 @@ class V5OrchestratorFinal:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime, reason=corr_check["reason"], corr_b=True)
 
-        # ── Gate 10: Portfolio heat ───────────────────────────
+        # ── Gate 10: Portfolio heat ──────────────────────────
         var_report = self.var_engine.compute(self.governor._open_positions)
         if not var_report.safe_to_trade:
             heat_reason = f"Portfolio heat {var_report.portfolio_heat_pct:.1%} — unsafe"
@@ -677,17 +651,17 @@ class V5OrchestratorFinal:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime, reason=heat_reason, heat_b=True)
 
-        # ── Execution ─────────────────────────────────────────
+        # ── Execution ────────────────────────────────────────
         fill_result = self.execution.simulate_fill(
             pair=pair, direction=direction, order_type="market",
             requested_price=entry, lots=lots, atr=atr, session=session_name,
         )
         fill_price = fill_result.fill_price
 
-        # ── Trade levels ──────────────────────────────────────
-        sd  = signal.stop_distance
-        tp1 = signal.tp1_distance
-        tp2 = signal.tp2_distance
+        # ── Trade levels (100% bulletproof via getattr) ──────
+        sd  = getattr(signal, "stop_distance", 0.0)
+        tp1 = getattr(signal, "tp1_distance", sd * 1.0)
+        tp2 = getattr(signal, "tp2_distance", tp1 * 1.5)
         tp3 = getattr(signal, "tp3_distance", tp2 * 1.5)
 
         if direction == "buy":
@@ -701,7 +675,7 @@ class V5OrchestratorFinal:
             take_profit2 = fill_price - tp2
             take_profit3 = fill_price - tp3
 
-        # ── Register with trade manager ───────────────────────
+        # ── Register with trade manager ──────────────────────
         self.trade_manager.open_position(
             pair=pair, direction=direction,
             entry=fill_price, stop_loss=stop_loss,
@@ -713,22 +687,33 @@ class V5OrchestratorFinal:
             reasoning=signal.reasoning,
         )
 
-        # ── Update correlation estimator ──────────────────────
+        # ═══ NEW: Register with MAE/MFE tracker ═══
+        try:
+            if mae_tracker:
+                mae_tracker.register(
+                    pair=pair, direction=direction, entry=fill_price,
+                    stop_loss=stop_loss, tp1=take_profit1,
+                    tp2=take_profit2, tp3=take_profit3,
+                )
+        except Exception as e:
+            logger.debug(f"MAE tracker register error: {e}")
+
+        # ── Update correlation estimator ─────────────────────
         self.corr_estimator.update(pair, entry)
 
-        # ── Monitor ───────────────────────────────────────────
+        # ── Monitor ──────────────────────────────────────────
         await self.monitor.on_signal_generated(pair, agent, direction, adj_conf)
 
-        # ── Agent scores ──────────────────────────────────────
+        # ── Agent scores ─────────────────────────────────────
         agent_scores = {
             name: round(sig.confidence * sig.regime_fit, 3)
             for name, sig in orch_result.all_signals.items()
             if sig.direction is not None
         }
 
-        # ── Build full reasoning ──────────────────────────────
+        # ── Build full reasoning (with MAE tags) ─────────────
         reasoning = (
-            f"V5.3 {pair} {direction.upper()} | Agent:{agent} | "
+            f"V5.4 {pair} {direction.upper()} | Agent:{agent} | "
             f"Regime:{regime}({regime_pred.confidence:.0%}) "
             f"shift_risk={shift_risk:.0%} | "
             f"WinProb:{win_prob:.0%} EV:{ev:+.3f}R | "
@@ -740,11 +725,11 @@ class V5OrchestratorFinal:
             f"SL:{stop_loss:.5f} TP1:{take_profit1:.5f} TP2:{take_profit2:.5f} TP3:{take_profit3:.5f} | "
             f"Heat:{var_report.portfolio_heat_pct:.1%} RiskScore:{self.governor.risk_score:.2f}"
             + (f" | DRIFT⚠" if drift_warn else "")
+            + f" | {signal.reasoning}"   # ═══ NEW: MAE tags now visible ═══
         )
 
         logger.info(reasoning)
 
-        # Record for filters
         try:
             self.corr_filter.record(pair)
             self.exposure_mgr.record(pair, direction)
@@ -773,7 +758,7 @@ class V5OrchestratorFinal:
             drift_warn=drift_warn, agent_scores=agent_scores,
         )
 
-    # ── Trade lifecycle ───────────────────────────────────────
+    # ── Trade lifecycle ──────────────────────────────────────
 
     async def on_trade_closed(
         self, pair: str, agent_name: str, direction: str,
@@ -782,21 +767,33 @@ class V5OrchestratorFinal:
         regime: str = "unknown", confidence: float = 0.0,
         session: str = "unknown", management_events: Optional[List[str]] = None,
     ):
-        """Atomic update of all learning systems on trade close."""
+        # ═══ NEW: Finalize MAE/MFE tracker ═══
+        try:
+            if mae_tracker:
+                mae_tracker.finalize(pair, exit_price=exit_price,
+                                      outcome=outcome, r_multiple=r_multiple)
+        except Exception as e:
+            logger.debug(f"MAE finalize error: {e}")
+
+        # ═══ NEW: Record performance metrics ═══
+        try:
+            if perf_analytics:
+                perf_analytics.record(pnl_usd, r_multiple, pair)
+        except Exception as e:
+            logger.debug(f"Perf analytics record error: {e}")
+
         self.governor.close_position(pair, pnl_usd)
         self.vol_sizer.update_balance(self.governor.current_balance)
         self.var_engine.update_balance(self.governor.current_balance)
         self.var_engine.add_daily_return(pnl_usd / max(self.governor.current_balance, 1))
         self.var_engine.add_trade_pnl(pnl_usd)
 
-        # Feed circuit breaker
         try:
-            risk_amount = 2.0  # 2% of $100
+            risk_amount = 2.0
             circuit_breaker.record_outcome(r_multiple, risk_amount)
         except Exception as e:
             logger.debug(f"Circuit breaker update: {e}")
 
-        # Feed agent weight adjuster
         try:
             agent_adjuster.record(agent_name, outcome, r_multiple)
         except Exception as e:
@@ -815,9 +812,7 @@ class V5OrchestratorFinal:
         )
         self._refresh_weights(regime, thompson=False)
 
-        # Journal entry
         duration_h = 0.0
-        pos_data   = {}
         trade_id   = f"{pair}_{int(datetime.now(timezone.utc).timestamp())}"
         j_entry = JournalEntry(
             trade_id=trade_id, pair=pair, timeframe="1h",
@@ -839,24 +834,27 @@ class V5OrchestratorFinal:
             "pair": pair, "agent": agent_name,
             "result": outcome, "r_multiple": r_multiple, "pnl": pnl_usd,
         })
-        logger.info(f"V5.3 closed: {pair} {agent_name}/{regime} {outcome} {r_multiple:+.2f}R ${pnl_usd:+.2f}")
+        logger.info(f"V5.4 closed: {pair} {agent_name}/{regime} {outcome} {r_multiple:+.2f}R ${pnl_usd:+.2f}")
 
-    # ── Tick update (call every bar) ──────────────────────────
+    # ── Tick update ──────────────────────────────────────────
 
     async def tick(self, current_prices: Dict[str, float]):
-        """Call every bar from scheduler — updates all time-sensitive state."""
-        # Trade manager: check TP/SL/trail on all positions
         await self.trade_manager.update_all(current_prices)
-        # Correlation estimator: feed latest prices
         for pair, price in current_prices.items():
             self.corr_estimator.update(pair, price)
+        # ═══ NEW: Update MAE/MFE tracker with live prices ═══
+        try:
+            if mae_tracker:
+                mae_tracker.update_all(current_prices)
+        except Exception as e:
+            logger.debug(f"MAE tick update error: {e}")
 
-    # ── System control ────────────────────────────────────────
+    # ── System control ───────────────────────────────────────
 
     def get_system_status(self) -> Dict:
         streak_r, streak_n = self.regime_transition.regime_streak()
-        return {
-            "version":              "5.3-final",
+        status = {
+            "version":              "5.4-final",
             "timestamp":            datetime.now(timezone.utc).isoformat(),
             "portfolio":            self.governor.get_portfolio_summary(),
             "var":                  self.var_engine.to_dict(
@@ -881,25 +879,62 @@ class V5OrchestratorFinal:
             },
             "regime_model_trained": self.regime_clf._trained,
         }
+        # ═══ NEW: Include MAE/MFE and performance in status ═══
+        try:
+            if mae_tracker:
+                status["mae_mfe"] = mae_tracker.summary()
+        except Exception:
+            pass
+        try:
+            if perf_analytics:
+                status["performance"] = perf_analytics.metrics()
+        except Exception:
+            pass
+        try:
+            if fundamentals_gate:
+                status["fundamentals"] = fundamentals_gate.status()
+        except Exception:
+            pass
+        return status
 
     async def send_heartbeat(self):
         await self.monitor.heartbeat(self.governor.get_portfolio_summary())
+        # ═══ NEW: StatArb alerts in heartbeat ═══
+        try:
+            if stat_arb and self.telegram:
+                await stat_arb.maybe_alert(self.telegram)
+        except Exception:
+            pass
 
     async def send_daily_summary(self):
         await self.monitor.daily_summary(
             self.learning.get_full_stats(),
             self.governor.get_portfolio_summary(),
         )
+        # ═══ NEW: Daily institutional report + MAE insights ═══
+        try:
+            if self.telegram and perf_analytics:
+                await self.telegram.send_message(perf_analytics.report())
+        except Exception:
+            pass
+        try:
+            if self.telegram and mae_tracker:
+                await self.telegram.send_message(mae_tracker.report())
+        except Exception:
+            pass
+        try:
+            if self.telegram and fundamentals_gate:
+                await self.telegram.send_message(fundamentals_gate.status())
+        except Exception:
+            pass
 
     async def train_regime_classifier(
         self, candles: List, save_path: str = "regime_model.pkl",
         use_augmentation: bool = True,
     ) -> Dict:
-        """Train classifier, optionally with synthetic augmentation."""
         result = await asyncio.to_thread(
             self._train_with_augmentation, candles, save_path, use_augmentation
         )
-        # Fit drift baseline
         feats = []
         for i in range(55, len(candles)):
             f = self.regime_clf.extractor.extract(candles[max(0, i-100):i+1])

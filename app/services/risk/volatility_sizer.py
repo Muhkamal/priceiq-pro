@@ -1,8 +1,8 @@
 """
-PriceIQ Pro — Volatility-Targeted Position Sizer v1.1 (DEFENSIVE)
+PriceIQ Pro — Volatility-Targeted Position Sizer v1.2 (CRYPTO FIXED)
 
-Fix: Adds loud warning + conservative fallback if account_balance
-      is never updated from the default $10,000.
+Fix: Adds BTCUSD/ETHUSD to pip dictionaries so position sizing 
+     doesn't break on high-ATR crypto assets.
 """
 from __future__ import annotations
 
@@ -22,12 +22,18 @@ PIP_VALUE_USD: Dict[str, float] = {
     "CADJPY": 9.09, "NZDJPY": 9.09, "CHFJPY": 9.09,
     "XAUUSD": 10.0,
     "XAGUSD": 50.0,
+    # ═══ NEW: Crypto pip values (1 lot = 1 coin, $1 move = $1 per lot) ═══
+    "BTCUSD": 1.0,
+    "ETHUSD": 1.0,
 }
 
 PIP_SIZE: Dict[str, float] = {
     "XAUUSD": 0.1, "XAGUSD": 0.001,
     "USDJPY": 0.01, "EURJPY": 0.01, "GBPJPY": 0.01,
     "AUDJPY": 0.01, "CADJPY": 0.01, "NZDJPY": 0.01, "CHFJPY": 0.01,
+    # ═══ NEW: Crypto pip sizes ($1.00 move = 1 pip) ═══
+    "BTCUSD": 1.0,
+    "ETHUSD": 1.0,
 }
 
 MAX_LOTS = 10.0

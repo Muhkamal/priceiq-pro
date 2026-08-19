@@ -1,4 +1,4 @@
-"""PriceIQ Pro V5 -- Main Entry Point (SAFE v6 -- circular import fix)"""
+"""PriceIQ Pro V5 -- Main Entry Point (SAFE v7 -- v5.4 Fully Wired)"""
 import sys, os, asyncio, logging, httpx
 from app.services.monitoring.signal_bot import signal_bot
 from app.services.learning.signal_performance_tracker import tracker
@@ -61,6 +61,20 @@ async def trading_loop():
                     try:
                         candles = await fetcher.get_candles(pair, "1h", limit=300)
                         if candles:
+                            # ═══ NEW v5.4: Feed live data to StatArb, Fundamentals, MAE ═══
+                            try:
+                                from app.services.agents.stat_arb_agent import stat_arb
+                                stat_arb.feed(pair, candles)
+                            except Exception: pass
+                            try:
+                                from app.services.core.fundamentals_gate import fundamentals_gate
+                                await fundamentals_gate.maybe_refresh()
+                            except Exception: pass
+                            try:
+                                from app.services.core.mae_mfe_analyzer import mae_tracker
+                                mae_tracker.update(pair, getattr(candles[-1], "close", 0))
+                            except Exception: pass
+
                             try:
                                 resolved = await tracker.update_with_candles(pair, candles)
                                 for sig in resolved:
@@ -172,6 +186,14 @@ async def trading_loop():
                 except Exception as e:
                     logger.warning(f"Bar stop check: {e}")
 
+                # ═══ NEW v5.4: Daily Institutional Report (8 AM UTC) ═══
+                if now.hour == 8 and now.minute < 6 and scan_count > 1:
+                    try:
+                        await v5.send_daily_summary()
+                        logger.info("Daily institutional summary sent")
+                    except Exception as rep_e:
+                        logger.warning(f"Daily summary error: {rep_e}")
+
                 logger.info(f"Scan #{scan_count} complete")
         except Exception as e:
             logger.error(f"Trading loop error: {e}")
@@ -198,6 +220,14 @@ async def lifespan(app: FastAPI):
             telegram=telegram_bot,
         )
         logger.info("V5 Orchestrator initialized OK")
+        
+        # ═══ NEW v5.4: Fetch economic calendar on startup ═══
+        try:
+            await v5.calendar.refresh()
+            logger.info("Economic calendar refreshed on startup")
+        except Exception as cal_e:
+            logger.warning(f"Calendar startup refresh failed: {cal_e}")
+            
     except Exception as e:
         import traceback
         logger.error(f"V5 init failed: {e}")
@@ -226,11 +256,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Broker webhook V5: {e}")
 
+    # ═══ NEW v5.4: Mount AI Chatbot Router ═══
+    try:
+        from app.routers.ai_chat import make_ai_router
+        app.include_router(make_ai_router(v5))
+        logger.info("AI Chatbot router mounted at /api/v5/ask")
+    except Exception as ai_e:
+        logger.warning(f"AI Chatbot router mount failed: {ai_e}")
+
     logger.info("PriceIQ Pro V5 -- Fully operational")
     yield
     logger.info("Shutting down...")
 
-app = FastAPI(title="PriceIQ Pro V5", version="5.0.0", lifespan=lifespan)
+app = FastAPI(title="PriceIQ Pro V5", version="5.4.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -283,7 +321,7 @@ except Exception as e:
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "version": "5.0.0",
+    return {"status": "healthy", "version": "5.4.0",
             "timestamp": datetime.now(timezone.utc).isoformat()}
 
 @app.head("/health")
@@ -297,7 +335,7 @@ async def root():
         v5_status = "running" if get_v5() else "not initialised"
     except Exception:
         v5_status = "error"
-    return {"app": "PriceIQ Pro V5", "version": "5.0.0",
+    return {"app": "PriceIQ Pro V5", "version": "5.4.0",
             "status": "running", "v5": v5_status, "docs": "/docs"}
 
 if __name__ == "__main__":

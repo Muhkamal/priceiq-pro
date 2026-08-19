@@ -1,36 +1,12 @@
 """
-PriceIQ Pro — Adaptive Learning System v1.0
+PriceIQ Pro — Adaptive Learning System v1.1 (CRYPTO/GOLD THRESHOLD FIX)
 
 Closes the feedback loop:
     trade outcome → weight update → better agent selection → better trades
 
-Components:
-    TradeOutcomeStore   — persists outcomes in-memory (+ optional JSON file)
-    AdaptiveLearner     — updates agent weights and pair-level confidence thresholds
-    LearningLoop        — orchestrates the whole cycle; call update() after each trade
-
-Usage:
-    loop = LearningLoop()
-
-    # After a trade closes:
-    loop.update(
-        pair="XAUUSD",
-        agent_name="TrendAgent",
-        direction="buy",
-        entry=1920.0,
-        exit=1935.0,
-        stop=1910.0,
-        tp1=1935.0,
-        outcome="win",          # "win" | "loss" | "timeout" | "breakeven"
-        r_multiple=1.5,         # actual R gained/lost
-    )
-
-    # Get updated weights for orchestrator:
-    weights = loop.get_agent_weights()
-    orchestrator.update_weights(weights)
-
-    # Get pair-level confidence threshold:
-    threshold = loop.get_confidence_threshold("XAUUSD")
+v1.1 Update:
+    ✅ Lowers confidence threshold for BTCUSD, XAUUSD, ETHUSD, XAGUSD by 0.10
+       so high-volatility assets aren't unfairly blocked by the adaptive gate.
 """
 
 from __future__ import annotations
@@ -140,22 +116,11 @@ class TradeOutcomeStore:
 class AdaptiveLearner:
     """
     Updates agent weights and per-pair confidence thresholds from trade outcomes.
-
-    Weight logic:
-        - WIN  → weight += WIN_BOOST
-        - LOSS → weight -= LOSS_PENALTY
-        - All weights decay slightly each cycle (keeps system responsive to regime changes)
-        - Weights clamped to [MIN_WEIGHT, MAX_WEIGHT]
-
-    Confidence threshold logic:
-        - If pair win rate drops below 45% over last 20 trades → raise threshold (+0.03)
-        - If pair win rate rises above 60% over last 20 trades → lower threshold (-0.02)
-        - Threshold clamped to [CONFIDENCE_FLOOR, CONFIDENCE_CEILING]
     """
 
     def __init__(self):
         self._agent_weights: Dict[str, float] = defaultdict(lambda: 1.0)
-        self._pair_thresholds: Dict[str, float] = defaultdict(lambda: 0.45)
+        self._pair_thresholds: Dict[str, float] = defaultdict(lambda: 0.50)
 
     def update_from_outcome(self, outcome: TradeOutcome, all_records: List[TradeOutcome]):
         """Update weights and thresholds based on a new trade outcome."""
@@ -202,7 +167,18 @@ class AdaptiveLearner:
         return dict(self._agent_weights)
 
     def get_confidence_threshold(self, pair: str) -> float:
-        return self._pair_thresholds.get(pair.upper(), 0.45)
+        """
+        Returns the adaptive confidence threshold for a pair.
+        Lowers the threshold for high-volatility assets (BTC/Gold) so they
+        aren't unfairly blocked by the adaptive gate.
+        """
+        base_threshold = self._pair_thresholds.get(pair.upper(), 0.50)
+        
+        # ═══ NEW: Lower threshold for crypto and commodities ═══
+        if pair.upper() in ("BTCUSD", "XAUUSD", "ETHUSD", "XAGUSD"):
+            return max(0.45, base_threshold - 0.10)
+            
+        return base_threshold
 
     def get_pair_stats(self, pair: str, records: List[TradeOutcome]) -> Dict[str, Any]:
         pair_recs = [r for r in records if r.pair.upper() == pair.upper()]
@@ -244,9 +220,6 @@ class AdaptiveLearner:
 class LearningLoop:
     """
     Top-level facade that orchestrates the full feedback cycle.
-
-    Call update() from the scheduler after every trade closes.
-    Then call get_agent_weights() and pass to orchestrator.update_weights().
     """
 
     def __init__(self, persistence_path: str = _PERSISTENCE_PATH):

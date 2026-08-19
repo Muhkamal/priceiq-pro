@@ -1,28 +1,12 @@
 """
-PriceIQ Pro — Market Anomaly Detector v1.0
+PriceIQ Pro — Market Anomaly Detector v1.1 (CRYPTO/GOLD FIX)
 
 Detects abnormal market conditions BEFORE a signal fires.
 
-What it catches:
-    1. ATR spike   — volatility 3×+ above recent baseline (news event, NFP)
-    2. Volume spike — 4×+ normal volume in candle
-    3. Price gap   — open > 1× ATR from prior close (weekend gap, flash crash)
-    4. Spread blow-out — broker spread widens beyond threshold (illiquid)
-    5. Tick speed anomaly — abnormal number of ticks in bar (HFT activity)
-    6. Sequential same-direction candles — 7+ in a row (momentum exhaustion)
-
-Usage:
-    detector = AnomalyDetector()
-
-    # Feed candles every bar:
-    report = detector.check(candles, pair="XAUUSD")
-
-    if report.block_signals:
-        log(report.reason)
-        return None  # don't trade
-
-    if report.warn:
-        reduce_position_size(0.5)
+v1.1 Update:
+    ✅ Added PAIR_THRESHOLDS dictionary to relax ATR, Volume, and Gap limits
+       for BTC, ETH, XAU, and XAG. This prevents the bot from falsely blocking
+       signals on high-volatility assets during normal market movement.
 """
 
 from __future__ import annotations
@@ -53,11 +37,11 @@ def _safe_mean(vals, default=0.0):
 class AnomalyReport:
     timestamp:     str
     pair:          str
-    anomalies:     List[str]   # list of detected anomaly names
-    block_signals: bool        # True = don't trade
-    warn:          bool        # True = trade with caution (smaller size)
-    size_multiplier: float     # 1.0 = normal, 0.5 = halved, 0.0 = blocked
-    reason:        str         # human-readable summary
+    anomalies:     List[str]
+    block_signals: bool
+    warn:          bool
+    size_multiplier: float
+    reason:        str
 
 
 class AnomalyDetector:
@@ -66,7 +50,7 @@ class AnomalyDetector:
     Acts as gate #0 — upstream of all other filters.
     """
 
-    # Thresholds
+    # ── Default Thresholds (Standard Forex) ──────────────────
     ATR_SPIKE_BLOCK  = 3.5   # ATR × current vs baseline → block
     ATR_SPIKE_WARN   = 2.0   # ATR × current vs baseline → warn
     VOL_SPIKE_BLOCK  = 5.0   # volume × current vs avg → block
@@ -76,6 +60,16 @@ class AnomalyDetector:
     MAX_SAME_DIR     = 7     # consecutive same-direction candles → warn
     ATR_LOOKBACK     = 20
     VOL_LOOKBACK     = 20
+
+    # ═══ NEW: Pair-specific overrides for high-volatility assets ═══
+    # Crypto and Gold naturally have wider ranges and volume spikes.
+    # If we use standard Forex thresholds, they get blocked constantly.
+    PAIR_THRESHOLDS = {
+        "BTCUSD": {"ATR_BLOCK": 6.0, "ATR_WARN": 4.0, "VOL_BLOCK": 8.0, "VOL_WARN": 5.0, "GAP_BLOCK": 3.0, "GAP_WARN": 1.5},
+        "ETHUSD": {"ATR_BLOCK": 6.0, "ATR_WARN": 4.0, "VOL_BLOCK": 8.0, "VOL_WARN": 5.0, "GAP_BLOCK": 3.0, "GAP_WARN": 1.5},
+        "XAUUSD": {"ATR_BLOCK": 5.0, "ATR_WARN": 3.0, "VOL_BLOCK": 7.0, "VOL_WARN": 4.5, "GAP_BLOCK": 2.5, "GAP_WARN": 1.2},
+        "XAGUSD": {"ATR_BLOCK": 5.0, "ATR_WARN": 3.0, "VOL_BLOCK": 7.0, "VOL_WARN": 4.5, "GAP_BLOCK": 2.5, "GAP_WARN": 1.2},
+    }
 
     def check(self, candles: List, pair: str = "") -> AnomalyReport:
         """
@@ -93,10 +87,20 @@ class AnomalyDetector:
                 warn=False, size_multiplier=1.0, reason="Insufficient candles for anomaly check",
             )
 
+        # Resolve thresholds for this specific pair
+        pt = self.PAIR_THRESHOLDS.get(pair.upper(), {})
+        atr_spike_block = pt.get("ATR_BLOCK", self.ATR_SPIKE_BLOCK)
+        atr_spike_warn  = pt.get("ATR_WARN", self.ATR_SPIKE_WARN)
+        vol_spike_block = pt.get("VOL_BLOCK", self.VOL_SPIKE_BLOCK)
+        vol_spike_warn  = pt.get("VOL_WARN", self.VOL_SPIKE_WARN)
+        gap_block_atr   = pt.get("GAP_BLOCK", self.GAP_BLOCK_ATR)
+        gap_warn_atr    = pt.get("GAP_WARN", self.GAP_WARN_ATR)
+
         current = candles[-1]
         prev    = candles[-2]
 
         # ── 1. ATR spike check ───────────────────────────────
+        baseline_atr = 0.0
         try:
             trs = []
             for i in range(1, self.ATR_LOOKBACK + 1):
@@ -107,10 +111,10 @@ class AnomalyDetector:
             current_range = current.high - current.low
             atr_ratio = _safe_div(current_range, baseline_atr)
 
-            if atr_ratio >= self.ATR_SPIKE_BLOCK:
+            if atr_ratio >= atr_spike_block:
                 anomalies.append(f"ATR_SPIKE_BLOCK (×{atr_ratio:.1f} above baseline)")
                 block = True
-            elif atr_ratio >= self.ATR_SPIKE_WARN:
+            elif atr_ratio >= atr_spike_warn:
                 anomalies.append(f"ATR_SPIKE_WARN (×{atr_ratio:.1f} above baseline)")
                 warn = True
         except Exception as e:
@@ -128,10 +132,10 @@ class AnomalyDetector:
                 if vol_history:
                     avg_vol   = _safe_mean(vol_history)
                     vol_ratio = _safe_div(curr_vol, avg_vol)
-                    if vol_ratio >= self.VOL_SPIKE_BLOCK:
+                    if vol_ratio >= vol_spike_block:
                         anomalies.append(f"VOLUME_SPIKE_BLOCK (×{vol_ratio:.1f} avg)")
                         block = True
-                    elif vol_ratio >= self.VOL_SPIKE_WARN:
+                    elif vol_ratio >= vol_spike_warn:
                         anomalies.append(f"VOLUME_SPIKE_WARN (×{vol_ratio:.1f} avg)")
                         warn = True
         except Exception as e:
@@ -142,10 +146,10 @@ class AnomalyDetector:
             gap = abs(current.open - prev.close)
             if baseline_atr > 0:
                 gap_ratio = _safe_div(gap, baseline_atr)
-                if gap_ratio >= self.GAP_BLOCK_ATR:
+                if gap_ratio >= gap_block_atr:
                     anomalies.append(f"PRICE_GAP_BLOCK ({gap_ratio:.1f}× ATR)")
                     block = True
-                elif gap_ratio >= self.GAP_WARN_ATR:
+                elif gap_ratio >= gap_warn_atr:
                     anomalies.append(f"PRICE_GAP_WARN ({gap_ratio:.1f}× ATR)")
                     warn = True
         except Exception as e:
@@ -168,7 +172,6 @@ class AnomalyDetector:
             logger.debug(f"Direction streak check error: {e}")
 
         # ── 5. Zero / invalid range (corrupted data) ─────────
-        # Only block on 3+ consecutive zero-range candles (single zeros are normal in forex/Yahoo Finance)
         try:
             recent_zero = sum(
                 1 for c in candles[-5:]
