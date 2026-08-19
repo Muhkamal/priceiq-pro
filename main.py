@@ -1,4 +1,4 @@
-"""PriceIQ Pro V5 -- Main Entry Point (SAFE v7 -- v5.4 Fully Wired)"""
+"""PriceIQ Pro V5 -- Main Entry Point (SAFE v8 -- bar-stop hourly fix)"""
 import sys, os, asyncio, logging, httpx
 from app.services.monitoring.signal_bot import signal_bot
 from app.services.learning.signal_performance_tracker import tracker
@@ -19,6 +19,15 @@ SIGNAL_COOLDOWN_MIN = 60
 # Prevents re-fetching the same 1h bar within 5 minutes
 _CANDLE_CACHE: dict = {}
 CACHE_TTL_SECONDS = 240  # 4 minutes
+
+# Daily report guard (send once per day)
+_last_daily_report: str = ""
+
+
+def _hour_bar_index() -> int:
+    """Real hourly candle index (epoch hours) — used for bar-time stops."""
+    return int(datetime.now(timezone.utc).timestamp() // 3600)
+
 
 async def trading_loop():
     # -- Import here to avoid circular import at module level --
@@ -65,15 +74,18 @@ async def trading_loop():
                             try:
                                 from app.services.agents.stat_arb_agent import stat_arb
                                 stat_arb.feed(pair, candles)
-                            except Exception: pass
+                            except Exception:
+                                pass
                             try:
                                 from app.services.core.fundamentals_gate import fundamentals_gate
                                 await fundamentals_gate.maybe_refresh()
-                            except Exception: pass
+                            except Exception:
+                                pass
                             try:
                                 from app.services.core.mae_mfe_analyzer import mae_tracker
                                 mae_tracker.update(pair, getattr(candles[-1], "close", 0))
-                            except Exception: pass
+                            except Exception:
+                                pass
 
                             try:
                                 resolved = await tracker.update_with_candles(pair, candles)
@@ -121,11 +133,12 @@ async def trading_loop():
                                 await asyncio.sleep(3)
                                 continue
 
+                            # ═══ FIXED: store a REAL hourly bar index (not scan count) ═══
                             result = await v5.run_signal_cycle(
                                 candles=candles,
                                 pair=pair,
                                 timeframe="1h",
-                                signal_bar_index=scan_count,
+                                signal_bar_index=_hour_bar_index(),
                             )
                             if result and result.signal_fired:
                                 _signal_cooldown[pair] = datetime.now(timezone.utc)
@@ -168,12 +181,10 @@ async def trading_loop():
                     except Exception as e:
                         logger.warning(f"Friday gap check failed: {e}")
 
-                # --- Bar time stops ---
+                # --- Bar time stops (FIXED: counts real 1h candles, not scans) ---
                 try:
                     if hasattr(v5, "trade_manager"):
-                        if not hasattr(v5, '_scan_count'):
-                            v5._scan_count = 0
-                        v5._scan_count = scan_count
+                        hour_bar_index = _hour_bar_index()
                         current_prices = {}
                         for p in watchlist:
                             try:
@@ -182,12 +193,15 @@ async def trading_loop():
                                     current_prices[p.upper()] = getattr(c[-1], "close", 0)
                             except Exception:
                                 pass
-                        await v5.trade_manager.check_bar_stops(v5._scan_count, current_prices, max_bars=8)
+                        await v5.trade_manager.check_bar_stops(hour_bar_index, current_prices, max_bars=8)
                 except Exception as e:
                     logger.warning(f"Bar stop check: {e}")
 
-                # ═══ NEW v5.4: Daily Institutional Report (8 AM UTC) ═══
-                if now.hour == 8 and now.minute < 6 and scan_count > 1:
+                # ═══ NEW v5.4: Daily Institutional Report (once per day, 8 AM UTC hour) ═══
+                global _last_daily_report
+                now = datetime.now(timezone.utc)
+                if now.hour == 8 and _last_daily_report != now.strftime("%Y-%m-%d"):
+                    _last_daily_report = now.strftime("%Y-%m-%d")
                     try:
                         await v5.send_daily_summary()
                         logger.info("Daily institutional summary sent")
@@ -220,14 +234,14 @@ async def lifespan(app: FastAPI):
             telegram=telegram_bot,
         )
         logger.info("V5 Orchestrator initialized OK")
-        
+
         # ═══ NEW v5.4: Fetch economic calendar on startup ═══
         try:
             await v5.calendar.refresh()
             logger.info("Economic calendar refreshed on startup")
         except Exception as cal_e:
             logger.warning(f"Calendar startup refresh failed: {cal_e}")
-            
+
     except Exception as e:
         import traceback
         logger.error(f"V5 init failed: {e}")
