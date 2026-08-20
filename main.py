@@ -45,7 +45,14 @@ async def trading_loop():
     gap_mgr = OvernightGapManager(telegram=None)
     _thursday_closes: dict = {}
 
-    watchlist = ["XAUUSD", "EURUSD", "GBPUSD", "USDCHF", "AUDUSD", "BTCUSD"]
+    
+    watchlist = [
+    # Forex Majors & Crosses
+    "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD", "EURJPY", "GBPJPY",
+    # Commodities
+    "XAUUSD", "XAGUSD",
+    # Crypto (24/7 Markets)
+    "BTCUSD", "ETHUSD", "SOLUSD"]
 
     while True:
         now = datetime.now(timezone.utc)

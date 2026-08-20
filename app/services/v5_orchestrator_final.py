@@ -1,8 +1,9 @@
 """
-PriceIQ Pro — V5 Master Orchestrator v5.4.2 (FINAL + ADVISORY MODE)
+PriceIQ Pro — V5 Master Orchestrator v5.4.2 (FINAL + ADVISORY BYPASS)
 
 v5.4.2 additions:
     ✅ ADVISORY_MODE env switch  → governor never hard-blocks on per-trade risk
+    ✅ Advisory Gate 8 Bypass    → signals flow to Telegram with risk warnings
     ✅ Micro-account mode        → 10% cap when balance < $1,000 (non-advisory)
     ✅ Crypto pip fix            → patches risk_governor pip dicts for BTC/ETH
     ✅ Stop cap for crypto/gold  → structure stops capped to % of price
@@ -97,7 +98,9 @@ try:
 except Exception:
     fundamentals_gate = None
 
-WATCHLIST = ["XAUUSD", "EURUSD", "GBPUSD", "USDCHF", "AUDUSD", "BTCUSD"]
+WATCHLIST = [
+    "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD", "EURJPY", "GBPJPY",
+    "XAUUSD", "XAGUSD", "BTCUSD", "ETHUSD", "SOLUSD"]
 
 
 @dataclass
@@ -451,7 +454,7 @@ class V5OrchestratorFinal:
             regime      = "ranging"
 
         # ═══ v5.4: Volatile regime override for BTC/Gold ═══
-        if regime == "volatile" and pair.upper() in ("XAUUSD", "BTCUSD", "ETHUSD", "XAGUSD", "GBPJPY"):
+        if regime == "volatile" and pair.upper() in ("XAUUSD", "SOLUSD", "BTCUSD", "ETHUSD", "XAGUSD", "GBPJPY"):
             logger.info(f"[REGIME OVERRIDE] {pair} classified as volatile → treating as trending")
             regime = "trending"
             regime_pred.trending = max(regime_pred.trending, 0.60)
@@ -690,11 +693,18 @@ class V5OrchestratorFinal:
             pair=pair, direction=direction, proposed_lots=lots,
             stop_distance=signal.stop_distance, entry_price=entry,
         )
-        if not risk_dec.allowed:
+        
+        # ═══ v5.4.2 ADVISORY MODE BYPASS ═══
+        is_advisory = os.environ.get("ADVISORY_MODE", "0") == "1"
+        if not risk_dec.allowed and not is_advisory:
             await self.monitor.on_signal_blocked(pair, risk_dec.reason)
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime, reason=risk_dec.reason, risk_b=True)
-        lots = risk_dec.adjusted_lots
+        if not risk_dec.allowed and is_advisory:
+            logger.warning(f"ADVISORY MODE: Bypassing risk block ({risk_dec.reason})")
+            signal.reasoning += f" | ADVISORY_WARNING: {risk_dec.reason}"
+            
+        lots = risk_dec.adjusted_lots if risk_dec.allowed else lots
         lots = 0.01  # hard override: micro lots for advisory signals
 
         # ── Gate 9: Dynamic correlation ──────────────────────
