@@ -1,5 +1,5 @@
 """
-PriceIQ Pro — Market Data Fetcher v1.3
+PriceIQ Pro — Market Data Fetcher v1.4
 
 Source priority (first available wins):
   1. Twelve Data    — 800 req/day free, real volume, reliable
@@ -45,12 +45,19 @@ _YF_INTERVAL_MAP = {
 }
 
 _YF_SYMBOL_MAP = {
+    # Forex pairs
     "EURUSD": "EURUSD=X", "GBPUSD": "GBPUSD=X",
     "USDJPY": "USDJPY=X", "USDCHF": "USDCHF=X",
     "AUDUSD": "AUDUSD=X", "NZDUSD": "NZDUSD=X",
     "USDCAD": "USDCAD=X", "EURGBP": "EURGBP=X",
     "EURJPY": "EURJPY=X", "GBPJPY": "GBPJPY=X",
-    "XAUUSD": "GC=F",     "BTCUSD": "BTC-USD",
+    # Commodities
+    "XAUUSD": "GC=F",      # Gold Futures
+    "XAGUSD": "SI=F",      # Silver Futures (FIXED)
+    # Crypto
+    "BTCUSD": "BTC-USD",   # Bitcoin
+    "ETHUSD": "ETH-USD",   # Ethereum (FIXED)
+    "SOLUSD": "SOL-USD",   # Solana (FIXED)
 }
 
 _candle_cache: Dict[str, Tuple[List, datetime]] = {}
@@ -298,6 +305,7 @@ class DataFetcher:
     # ──────────────────────────────────────────────────────────
 
     async def _fetch_yf(self, pair: str, timeframe: str) -> List:
+        # Use symbol map for crypto/silver, fallback to forex format for others
         symbol = _YF_SYMBOL_MAP.get(pair, f"{pair[:3]}{pair[3:]}=X")
         if timeframe == "4h":
             h1 = await self._fetch_yf_raw(symbol, "1h", "730d")
