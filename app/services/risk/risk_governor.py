@@ -1,10 +1,11 @@
 """
-PriceIQ Pro — Portfolio Risk Governor v1.1 (FIXED)
+PriceIQ Pro — Portfolio Risk Governor v1.2 (CRYPTO FIXED)
 
 Fixes:
     1. ADDED per-trade risk limit enforcement (was declared but never checked)
     2. FIXED gold exposure calculation (was 1000× too high for XAUUSD)
     3. ADDED pair-aware pip value helper
+    4. FIXED crypto pip value (BTC/ETH now use 1.0 multiplier instead of 100,000)
 
 This is NOT a per-trade risk calculator.
 This is a GOVERNOR — it has veto power over all trade decisions.
@@ -29,6 +30,7 @@ PAIR_CORRELATIONS: Dict[str, List[str]] = {
     "XAUUSD": ["XAGUSD"],
     "AUDUSD": ["EURUSD", "NZDUSD", "AUDJPY"],
     "USDCAD": ["CADJPY"],
+    "BTCUSD": ["ETHUSD"],
 }
 
 CORR_THRESHOLD = 0.70
@@ -266,11 +268,14 @@ class RiskGovernor:
         """
         Pair-aware pip value multiplier.
         
-        XAUUSD:  1 lot = 100 oz, $1 per $1 move  → 100
-        JPY pairs: pip = 0.01                      → 1000
-        Standard: pip = 0.0001                     → 100_000
+        Crypto:  1 lot = 1 coin, $1 per $1 move   → 1.0
+        XAUUSD:  1 lot = 100 oz, $1 per $1 move   → 100.0
+        JPY pairs: pip = 0.01                      → 1000.0
+        Standard: pip = 0.0001                     → 100_000.0
         """
         pair = pair.upper()
+        if "BTC" in pair or "ETH" in pair or "XBT" in pair or "SOL" in pair:
+            return 1.0
         if "XAU" in pair or "XAG" in pair:
             return 100.0
         if "JPY" in pair:

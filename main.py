@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
