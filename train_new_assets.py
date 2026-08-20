@@ -1,11 +1,11 @@
 """
-PriceIQ Pro — Train Regime Classifier on All Pairs (Bulletproof Save)
+PriceIQ Pro — Train Regime Classifier on All Pairs (Pickle Save Fix)
 """
 import asyncio
 import sys
 import os
+import pickle
 import numpy as np
-import joblib  # Used for bulletproof saving
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -55,11 +55,11 @@ async def main():
     try:
         result = await asyncio.to_thread(v5.regime_clf.train, all_candles)
         
-        # ═══ BULLETPROOF SAVE ═══
-        # Bypasses the missing .save() method by using joblib directly
-        joblib.dump(v5.regime_clf, "regime_model.pkl")
-        print("✅ Saved regime_model.pkl using joblib")
-        
+        # ═══ BULLETPROOF PICKLE SAVE ═══
+        with open("regime_model.pkl", "wb") as f:
+            pickle.dump(v5.regime_clf, f, protocol=pickle.HIGHEST_PROTOCOL)
+            print("✅ Saved regime_model.pkl using pickle")
+       
         feats = []
         for i in range(55, len(all_candles)):
             f = v5.regime_clf.extractor.extract(all_candles[max(0, i-100):i+1])
