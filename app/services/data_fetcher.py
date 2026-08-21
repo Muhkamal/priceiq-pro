@@ -1,5 +1,5 @@
 """
-PriceIQ Pro — Market Data Fetcher v1.4
+PriceIQ Pro — Market Data Fetcher v1.5 (Memory Optimized)
 
 Source priority (first available wins):
   1. Twelve Data    — 800 req/day free, real volume, reliable
@@ -10,6 +10,7 @@ Set TWELVE_DATA_API_KEY in .env to enable primary source.
 AV and Yahoo are automatic fallbacks — no config needed.
 
 Stale data detection, price sanity checks, and clear logging retained.
+Memory guard added to prevent Render OOM (Exit 137) on 14-pair scans.
 """
 
 import httpx
@@ -38,10 +39,11 @@ _AV_INTRADAY_INTERVALS = {
     "30m": "30min", "1h": "60min",
 }
 
+# ═══ MEMORY FIX 1: Reduced 730d to 60d to prevent RAM crashes ═══
 _YF_INTERVAL_MAP = {
     "1m": ("1m", "7d"), "5m": ("5m", "60d"), "15m": ("15m", "60d"),
-    "30m": ("30m", "60d"), "1h": ("1h", "730d"),
-    "4h": ("1h", "730d"), "1d": ("1d", "5y"),
+    "30m": ("30m", "60d"), "1h": ("1h", "60d"),
+    "4h": ("1h", "60d"), "1d": ("1d", "5y"),
 }
 
 _YF_SYMBOL_MAP = {
@@ -53,11 +55,11 @@ _YF_SYMBOL_MAP = {
     "EURJPY": "EURJPY=X", "GBPJPY": "GBPJPY=X",
     # Commodities
     "XAUUSD": "GC=F",      # Gold Futures
-    "XAGUSD": "SI=F",      # Silver Futures (FIXED)
+    "XAGUSD": "SI=F",      # Silver Futures
     # Crypto
     "BTCUSD": "BTC-USD",   # Bitcoin
-    "ETHUSD": "ETH-USD",   # Ethereum (FIXED)
-    "SOLUSD": "SOL-USD",   # Solana (FIXED)
+    "ETHUSD": "ETH-USD",   # Ethereum
+    "SOLUSD": "SOL-USD",   # Solana
 }
 
 _candle_cache: Dict[str, Tuple[List, datetime]] = {}
@@ -169,6 +171,8 @@ class DataFetcher:
         # Price sanity check
         self._validate_price(candles[-1], pair, source)
 
+        # ═══ MEMORY FIX 2: Keep cache light on Render's 512MB free tier ═══
+        candles = candles[-max(limit * 4, 1200):]
         _candle_cache[cache_key] = (candles, now)
         return candles[-limit:]
 
@@ -308,7 +312,8 @@ class DataFetcher:
         # Use symbol map for crypto/silver, fallback to forex format for others
         symbol = _YF_SYMBOL_MAP.get(pair, f"{pair[:3]}{pair[3:]}=X")
         if timeframe == "4h":
-            h1 = await self._fetch_yf_raw(symbol, "1h", "730d")
+            # ═══ MEMORY FIX 3: 60d instead of 730d for 4h resampling ═══
+            h1 = await self._fetch_yf_raw(symbol, "1h", "60d")
             return self._resample_to_4h(h1)
         interval, period = _YF_INTERVAL_MAP.get(timeframe, ("1d", "5y"))
         return await self._fetch_yf_raw(symbol, interval, period)
