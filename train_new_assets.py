@@ -1,5 +1,5 @@
 """
-PriceIQ Pro — Train Regime Classifier on All Pairs (Pickle Save Fix)
+PriceIQ Pro — Train Regime Classifier on All Pairs (Internal Model Save Fix)
 """
 import asyncio
 import sys
@@ -55,10 +55,16 @@ async def main():
     try:
         result = await asyncio.to_thread(v5.regime_clf.train, all_candles)
         
-        # ═══ BULLETPROOF PICKLE SAVE ═══
+        # ═══ BULLETPROOF MODEL SAVE (FIXED) ═══
+        # Extract the actual XGBoost brain from inside the wrapper class
+        # This prevents the 'RegimeClassifier object has no attribute get' error on Render
+        internal_model = getattr(v5.regime_clf, 'model', None) or getattr(v5.regime_clf, 'clf', None)
+        if internal_model is None:
+            internal_model = v5.regime_clf  # Fallback
+            
         with open("regime_model.pkl", "wb") as f:
-            pickle.dump(v5.regime_clf, f, protocol=pickle.HIGHEST_PROTOCOL)
-            print("✅ Saved regime_model.pkl using pickle")
+            pickle.dump(internal_model, f)
+        print("✅ Saved internal XGBoost model to regime_model.pkl")
        
         feats = []
         for i in range(55, len(all_candles)):
