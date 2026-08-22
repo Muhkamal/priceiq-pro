@@ -1,5 +1,10 @@
 """
-PriceIQ Pro — V5 Master Orchestrator v5.4.2 (FINAL + ADVISORY BYPASS)
+PriceIQ Pro — V5 Master Orchestrator v5.5.0 (INSTITUTIONAL UPGRADE)
+
+v5.5.0 additions (Rayner Teo Principles):
+    ✅ Macro Risk Filter      → "Go-To-Cash" switch (halves long confidence if SPY < 200SMA)
+    ✅ Trend-Rider Mode       → 4x ATR trailing stop + disables fixed TPs for Trend/Breakout agents
+    ✅ 20% Robustness Tester  → (Available via scripts/stress_test_20_percent.py)
 
 v5.4.2 additions:
     ✅ ADVISORY_MODE env switch  → governor never hard-blocks on per-trade risk
@@ -80,7 +85,7 @@ from .core.mae_enhanced_sr import enhanced_sr
 from .core.mae_confidence import mae_confidence
 from .core.mae_bar_guard import mae_bar_guard
 
-# ── v5.4 institutional upgrades (safe imports) ──
+# ── v5.4 / v5.5 institutional upgrades (safe imports) ──
 try:
     from .core.mae_mfe_analyzer import mae_tracker
 except Exception:
@@ -97,6 +102,10 @@ try:
     from .core.fundamentals_gate import fundamentals_gate
 except Exception:
     fundamentals_gate = None
+try:
+    from .core.macro_risk_filter import macro_risk_filter
+except Exception:
+    macro_risk_filter = None
 
 WATCHLIST = [
     "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD", "EURJPY", "GBPJPY",
@@ -170,7 +179,7 @@ class V5SignalResult:
 
 
 class V5OrchestratorFinal:
-    """PriceIQ Pro — Complete V5 System (v5.4.2)."""
+    """PriceIQ Pro — Complete V5 System (v5.5.0 Institutional)."""
 
     def __init__(
         self,
@@ -285,7 +294,7 @@ class V5OrchestratorFinal:
 
         # Bootstrap weights
         self._refresh_weights("trending")
-        logger.info("✅ V5 Final Orchestrator (v5.4.2) — all systems online")
+        logger.info("✅ V5 Final Orchestrator (v5.5.0) — all systems online (Institutional Upgrade)")
 
     # ────────────────────────────────────────────────────────
     # HELPERS
@@ -506,6 +515,18 @@ class V5OrchestratorFinal:
         agent     = orch_result.selected_agent
         direction = signal.direction
 
+        # ═══ v5.5: MACRO RISK FILTER (The "Go-To-Cash" Switch) ═══
+        macro_state = "NEUTRAL"
+        if macro_risk_filter:
+            try:
+                macro_state = await macro_risk_filter.get_market_state()
+                if macro_state == "RISK_OFF" and direction == "buy":
+                    logger.warning(f"🌍 MACRO RISK-OFF: {pair} long confidence halved (Broad market < 200SMA)")
+                    signal.confidence *= 0.5
+                    signal.reasoning += " | MACRO_RISK_OFF(longs_halved)"
+            except Exception as e:
+                logger.debug(f"Macro filter error: {e}")
+
         # ── M.A.E. ENHANCED STRUCTURE ────────────────────────
         mae_sr_levels = []
         try:
@@ -559,6 +580,28 @@ class V5OrchestratorFinal:
                 signal.reasoning += f" | STOP_CAPPED({frac:.1%} of price)"
         except Exception as e:
             logger.debug(f"Stop cap error: {e}")
+
+        # ═══ v5.5: TREND-RIDER MODE (Letting Winners Run) ═══
+        is_trend_rider = False
+        if regime == "trending" and agent in ["TrendAgent", "BreakoutAgent"]:
+            is_trend_rider = True
+            atr_val = calculate_atr(candles) if _MAE_AVAILABLE else (candles[-1].high - candles[-1].low)
+            trailing_stop_mult = 4.0
+            new_sl_distance = atr_val * trailing_stop_mult
+            
+            # Override stop distance to 4 ATR
+            signal.stop_distance = new_sl_distance
+            
+            # Nullify fixed TPs by pushing them extremely far away
+            signal.take_profit_1 = None
+            signal.take_profit_2 = None
+            signal.take_profit_3 = None
+            signal.tp1_distance = new_sl_distance * 20.0
+            signal.tp2_distance = new_sl_distance * 30.0
+            signal.tp3_distance = new_sl_distance * 40.0
+            
+            signal.reasoning += f" | 🐢 TREND-RIDER(4xATR Trail, No Fixed TPs)"
+            logger.info(f"🐢 TREND-RIDER MODE: {pair} {direction} | No fixed TPs, 4x ATR Trailing Stop activated")
 
         # ── MTF CONFLUENCE FILTER ────────────────────────────
         try:
@@ -737,6 +780,12 @@ class V5OrchestratorFinal:
         tp2 = getattr(signal, "tp2_distance", tp1 * 1.5)
         tp3 = getattr(signal, "tp3_distance", tp2 * 1.5)
 
+        if is_trend_rider:
+            # Effectively disable TPs by pushing them 20x+ ATR away
+            tp1 = sd * 20.0
+            tp2 = sd * 30.0
+            tp3 = sd * 40.0
+
         if direction == "buy":
             stop_loss    = fill_price - sd
             take_profit1 = fill_price + tp1
@@ -786,7 +835,7 @@ class V5OrchestratorFinal:
 
         # ── Build full reasoning (MAE tags included) ─────────
         reasoning = (
-            f"V5.4 {pair} {direction.upper()} | Agent:{agent} | "
+            f"V5.5 {pair} {direction.upper()} | Agent:{agent} | "
             f"Regime:{regime}({regime_pred.confidence:.0%}) "
             f"shift_risk={shift_risk:.0%} | "
             f"WinProb:{win_prob:.0%} EV:{ev:+.3f}R | "
@@ -907,7 +956,7 @@ class V5OrchestratorFinal:
             "pair": pair, "agent": agent_name,
             "result": outcome, "r_multiple": r_multiple, "pnl": pnl_usd,
         })
-        logger.info(f"V5.4 closed: {pair} {agent_name}/{regime} {outcome} {r_multiple:+.2f}R ${pnl_usd:+.2f}")
+        logger.info(f"V5.5 closed: {pair} {agent_name}/{regime} {outcome} {r_multiple:+.2f}R ${pnl_usd:+.2f}")
 
     # ── Tick update (call every bar) ─────────────────────────
 
@@ -927,7 +976,7 @@ class V5OrchestratorFinal:
     def get_system_status(self) -> Dict:
         streak_r, streak_n = self.regime_transition.regime_streak()
         status = {
-            "version":              "5.4.2",
+            "version":              "5.5.0",
             "timestamp":            datetime.now(timezone.utc).isoformat(),
             "portfolio":            self.governor.get_portfolio_summary(),
             "var":                  self.var_engine.to_dict(
