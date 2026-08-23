@@ -1,5 +1,5 @@
 """
-PriceIQ Pro — COT Report Agent v1.0 (7th Agent)
+PriceIQ Pro — COT Report Agent v1.1 (Production Ready)
 
 Reads CFTC Commitments of Traders (COT) data to detect when
 institutional/smart money is at extreme positioning — one of the
@@ -64,6 +64,7 @@ import json
 import logging
 import os
 import zipfile
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -181,7 +182,7 @@ class CFTCDataFetcher:
         year = year or datetime.now().year
         url  = self.CFTC_ZIP_URL.format(year=year)
         try:
-            req = Request(url, headers={"User-Agent": "PriceIQ-Pro/5.4"})
+            req = Request(url, headers={"User-Agent": "PriceIQ-Pro/5.5"})
             with urlopen(req, timeout=30) as r:
                 raw = r.read()
             return self._parse_zip(raw)
@@ -346,8 +347,12 @@ class COTReportAgent:
         Call every Friday after 20:30 UTC from scheduler.
         Returns dict of pair → COTSnapshot.
         """
+        # ═══ THROTTLE: Only fetch once per 24 hours to prevent CFTC IP bans ═══
+        if self._last_refresh and (datetime.now(timezone.utc) - self._last_refresh).total_seconds() < 86400:
+            logger.debug("COT refresh throttled (already refreshed today)")
+            return dict(self._latest)
+
         try:
-            import asyncio
             rows = await asyncio.to_thread(self._fetcher.fetch_current)
             if not rows:
                 logger.warning("COT: no data fetched from CFTC")
@@ -409,13 +414,15 @@ class COTReportAgent:
         self,
         candles: list,
         regime:  str = "trending",
-        pair:    str = "XAUUSD",
+        pair:    str = None,  # ═══ FIX: Changed to None to match BaseAgent signature ═══
     ) -> COTAgentSignal:
         """
         Evaluate COT signal for given pair.
         Same interface as other agents for orchestrator compatibility.
         """
-        pair_u = pair.upper()
+        # ═══ FIX: Safe fallback if orchestrator passes None ═══
+        pair_u = (pair or "XAUUSD").upper()
+        
         if pair_u not in self.SUPPORTED_PAIRS:
             return self._null_signal(f"{pair} not in COT tracking list")
 
@@ -580,7 +587,7 @@ class COTReportAgent:
         )
 
     def _calc_atr(self, candles: list, period: int = 14) -> float:
-        if len(candles) < period + 1:
+        if not candles or len(candles) < period + 1:
             return 0.001
         trs = []
         for i in range(1, min(period + 2, len(candles))):

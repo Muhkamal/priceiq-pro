@@ -1,5 +1,10 @@
 """
-PriceIQ Pro — V5 Master Orchestrator v5.5.0 (INSTITUTIONAL UPGRADE)
+PriceIQ Pro — V5 Master Orchestrator v5.6.0 (9-AGENT + RL UPGRADE)
+
+v5.6.0 additions:
+    ✅ 9-Agent Syndicate     → COT Report + NLP News Sentiment wired into Agent Layer
+    ✅ RL Trade Manager      → PPO dynamic trade management replaces fixed TP/SL rules
+    ✅ External Data Refresh → Throttled API calls for COT/News before signal cycle
 
 v5.5.0 additions (Rayner Teo Principles):
     ✅ Macro Risk Filter      → "Go-To-Cash" switch (halves long confidence if SPY < 200SMA)
@@ -49,7 +54,6 @@ from .risk.hybrid_correlation          import HybridCorrelationEstimator as Dyna
 from .risk.volatility_sizer            import VolatilityTargetedSizer
 from .risk.var_engine_v2               import VaREngine
 from .core.economic_calendar           import EconomicCalendar
-from .core.trade_manager_v2            import TradeManager
 from .core.trade_journal               import TradeJournal, JournalEntry
 from .core.candle_cache                import CandleCache
 from .execution.execution_intelligence import ExecutionIntelligence
@@ -68,6 +72,9 @@ from .backtest.walk_forward            import WalkForwardEngine, BacktestResult
 from .research.sensitivity_and_montecarlo import (
     ParameterSensitivityTester, MonteCarloEquityCurve,
 )
+
+# ═══ v5.6.0: RL Trade Manager Import ═══
+from .rl.rl_trade_manager import RLTradeManager
 
 try:
     from app.services.market_analyzer import (
@@ -179,7 +186,7 @@ class V5SignalResult:
 
 
 class V5OrchestratorFinal:
-    """PriceIQ Pro — Complete V5 System (v5.5.0 Institutional)."""
+    """PriceIQ Pro — Complete V5 System (v5.6.0 Institutional)."""
 
     def __init__(
         self,
@@ -265,11 +272,17 @@ class V5OrchestratorFinal:
 
         # ── Core ────────────────────────────────────────────
         self.calendar          = EconomicCalendar()
-        self.trade_manager     = TradeManager(
+        
+        # ═══ v5.6.0 FIX: Initialize Journal BEFORE Trade Manager ═══
+        self.journal           = TradeJournal(journal_path)
+
+        # ═══ v5.6.0: RL Trade Manager replaces fixed rule TradeManager ═══
+        self.trade_manager     = RLTradeManager(
+            journal=self.journal,
             telegram=telegram,
             learning_loop=self.learning,
         )
-        self.journal           = TradeJournal(journal_path)
+        
         self.candle_cache      = CandleCache(max_entries=120)
 
         # ── Execution ───────────────────────────────────────
@@ -294,7 +307,7 @@ class V5OrchestratorFinal:
 
         # Bootstrap weights
         self._refresh_weights("trending")
-        logger.info("✅ V5 Final Orchestrator (v5.5.0) — all systems online (Institutional Upgrade)")
+        logger.info("✅ V5 Final Orchestrator (v5.6.0) — 9 Agents + RL Manager Online")
 
     # ────────────────────────────────────────────────────────
     # HELPERS
@@ -480,8 +493,13 @@ class V5OrchestratorFinal:
 
         # ── Gate 4: Agent orchestration (pair-aware weights) ──
         self._refresh_weights(regime, pair=pair, thompson=True)
+        
+        # ═══ v5.6.0: Refresh External Agents (COT & News) ═══
+        await self.orchestrator.refresh_external_data()
+        
         try:
-            orch_result = self.orchestrator.run(candles, regime)
+            # ═══ v5.6.0: Pass pair so COT/News evaluate the correct instrument ═══
+            orch_result = self.orchestrator.run(candles, regime, pair=pair)
         except Exception as e:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime, reason=f"Orchestrator error: {e}")
@@ -583,7 +601,7 @@ class V5OrchestratorFinal:
 
         # ═══ v5.5: TREND-RIDER MODE (Letting Winners Run) ═══
         is_trend_rider = False
-        if regime == "trending" and agent in ["TrendAgent", "BreakoutAgent"]:
+        if regime == "trending" and agent in ["TrendAgent", "BreakoutAgent", "RaynerTrendAgent", "RaynerBreakoutAgent"]:
             is_trend_rider = True
             atr_val = calculate_atr(candles) if _MAE_AVAILABLE else (candles[-1].high - candles[-1].low)
             trailing_stop_mult = 4.0
@@ -797,15 +815,14 @@ class V5OrchestratorFinal:
             take_profit2 = fill_price - tp2
             take_profit3 = fill_price - tp3
 
-        # ── Register with trade manager ──────────────────────
+        # ── Register with RL trade manager ──────────────────────
         self.trade_manager.open_position(
             pair=pair, direction=direction,
             entry=fill_price, stop_loss=stop_loss,
-            tp1=take_profit1, tp2=take_profit2, tp3=take_profit3,
+            take_profit_1=take_profit1, take_profit_2=take_profit2, take_profit_3=take_profit3,
             lots=lots, atr=atr, agent=agent, regime=regime,
             session=session_name, timeframe=timeframe,
             confidence=adj_conf, win_prob=win_prob,
-            bar_index=signal_bar_index,
             reasoning=signal.reasoning,
         )
 
@@ -835,7 +852,7 @@ class V5OrchestratorFinal:
 
         # ── Build full reasoning (MAE tags included) ─────────
         reasoning = (
-            f"V5.5 {pair} {direction.upper()} | Agent:{agent} | "
+            f"V5.6 {pair} {direction.upper()} | Agent:{agent} | "
             f"Regime:{regime}({regime_pred.confidence:.0%}) "
             f"shift_risk={shift_risk:.0%} | "
             f"WinProb:{win_prob:.0%} EV:{ev:+.3f}R | "
@@ -956,13 +973,14 @@ class V5OrchestratorFinal:
             "pair": pair, "agent": agent_name,
             "result": outcome, "r_multiple": r_multiple, "pnl": pnl_usd,
         })
-        logger.info(f"V5.5 closed: {pair} {agent_name}/{regime} {outcome} {r_multiple:+.2f}R ${pnl_usd:+.2f}")
+        logger.info(f"V5.6 closed: {pair} {agent_name}/{regime} {outcome} {r_multiple:+.2f}R ${pnl_usd:+.2f}")
 
     # ── Tick update (call every bar) ─────────────────────────
 
-    async def tick(self, current_prices: Dict[str, float]):
+    async def tick(self, current_prices: Dict[str, float], current_candles: Optional[Dict] = None, current_atr: Optional[Dict] = None):
         """Call every bar from scheduler — updates all time-sensitive state."""
-        await self.trade_manager.update_all(current_prices)
+        # ═══ v5.6.0: Pass candles/ATR to RL Manager for state building ═══
+        await self.trade_manager.update_all(current_prices, current_candles, current_atr)
         for pair, price in current_prices.items():
             self.corr_estimator.update(pair, price)
         try:
@@ -976,7 +994,7 @@ class V5OrchestratorFinal:
     def get_system_status(self) -> Dict:
         streak_r, streak_n = self.regime_transition.regime_streak()
         status = {
-            "version":              "5.5.0",
+            "version":              "5.6.0",
             "timestamp":            datetime.now(timezone.utc).isoformat(),
             "portfolio":            self.governor.get_portfolio_summary(),
             "var":                  self.var_engine.to_dict(

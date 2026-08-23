@@ -1,5 +1,5 @@
 """
-PriceIQ Pro — NLP News Sentiment Agent v1.0 (6th Agent)
+PriceIQ Pro — NLP News Sentiment Agent v1.1 (Production Ready)
 
 Reads financial news headlines and converts them into directional
 trading signals for XAUUSD and major forex pairs.
@@ -489,6 +489,11 @@ class NewsSentimentAgent:
         Fetch latest news and compute sentiment scores for all pairs.
         Call every 30 minutes from scheduler.
         """
+        # ═══ THROTTLE: Only fetch once per 30 minutes to prevent API rate limits ═══
+        if self._last_refresh and (datetime.now(timezone.utc) - self._last_refresh).total_seconds() < 1800:
+            logger.debug("News refresh throttled (already refreshed within 30 mins)")
+            return dict(self._scores)
+
         try:
             # Fetch from all sources in parallel
             all_articles = await asyncio.gather(
@@ -553,15 +558,17 @@ class NewsSentimentAgent:
         self,
         candles: list,
         regime:  str = "trending",
-        pair:    str = "XAUUSD",
+        pair:    str = None,  # ═══ FIX: Changed to None to match BaseAgent signature ═══
     ) -> NewsSentimentAgentSignal:
         """
         Evaluate news sentiment signal for given pair.
         Called by AgentOrchestrator — same interface as other agents.
         """
-        pair_u = pair.upper()
+        # ═══ FIX: Safe fallback if orchestrator passes None ═══
+        pair_u = (pair or "XAUUSD").upper()
+        
         if pair_u not in self.SUPPORTED_PAIRS:
-            return self._null_signal(f"{pair} not supported by NewsSentimentAgent")
+            return self._null_signal(f"{pair_u} not supported by NewsSentimentAgent")
 
         if not self._articles:
             return self._null_signal("No news articles loaded — call refresh() first")
@@ -709,7 +716,8 @@ class NewsSentimentAgent:
         )
 
     def _calc_atr(self, candles: list, period: int = 14) -> float:
-        if len(candles) < period + 1:
+        # ═══ FIX: Safe fallback if candles is None or empty ═══
+        if not candles or len(candles) < period + 1:
             return 0.001
         trs = []
         for i in range(1, min(period + 2, len(candles))):

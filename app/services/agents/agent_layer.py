@@ -1,7 +1,7 @@
 """
-PriceIQ Pro — Multi-Agent Strategy Layer v1.2 (SAFE)
+PriceIQ Pro — Multi-Agent Strategy Layer v1.3 (SAFE + 9 AGENTS)
 
-Four competing strategy agents with SAFETY GUARDS for live trading.
+Four competing strategy agents + COT + News with SAFETY GUARDS for live trading.
 
 SAFETY CHANGES from v1.1:
     1. REMOVED fallback mode — if no valid signal, returns None (no trade)
@@ -9,6 +9,10 @@ SAFETY CHANGES from v1.1:
     3. ADDED regime-lock — only agents with regime_fit >= 0.5 can win
     4. RAISED minimum confidence to 0.50 (was 0.40)
     5. ADDED strong-trend detection to prevent catching falling knives
+    
+V1.3 CHANGES:
+    6. Added `pair: str = None` to all evaluate() signatures for COT/News routing
+    7. Integrated COTReportAgent and NewsSentimentAgent
 """
 
 from __future__ import annotations
@@ -18,6 +22,10 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+
+# ═══ V1.3: IMPORT EXTERNAL AGENTS ═══
+from .cot_report_agent import COTReportAgent
+from .news_sentiment_agent import NewsSentimentAgent
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +118,8 @@ class AgentSignal:
 class BaseAgent:
     NAME = "base"
 
-    def evaluate(self, candles: list, regime: str) -> AgentSignal:
+    # ═══ V1.3 FIX: Added pair parameter ═══
+    def evaluate(self, candles: list, regime: str, pair: str = None) -> AgentSignal:
         raise NotImplementedError
 
     def _null_signal(self, reason: str) -> AgentSignal:
@@ -137,7 +146,7 @@ class TrendAgent(BaseAgent):
     NAME = "TrendAgent"
     REGIME_FIT = {"trending": 1.0, "ranging": 0.2, "volatile": 0.4}
 
-    def evaluate(self, candles: list, regime: str) -> AgentSignal:
+    def evaluate(self, candles: list, regime: str, pair: str = None) -> AgentSignal:
         if len(candles) < 55:
             return self._null_signal("Insufficient candles")
 
@@ -211,7 +220,7 @@ class MeanReversionAgent(BaseAgent):
     NAME = "MeanReversionAgent"
     REGIME_FIT = {"trending": 0.2, "ranging": 1.0, "volatile": 0.3}
 
-    def evaluate(self, candles: list, regime: str) -> AgentSignal:
+    def evaluate(self, candles: list, regime: str, pair: str = None) -> AgentSignal:
         if len(candles) < 30:
             return self._null_signal("Insufficient candles")
 
@@ -292,7 +301,7 @@ class BreakoutAgent(BaseAgent):
     REGIME_FIT = {"trending": 0.5, "ranging": 0.4, "volatile": 1.0}
     COMPRESSION_BARS = 10
 
-    def evaluate(self, candles: list, regime: str) -> AgentSignal:
+    def evaluate(self, candles: list, regime: str, pair: str = None) -> AgentSignal:
         if len(candles) < 30:
             return self._null_signal("Insufficient candles")
 
@@ -362,7 +371,7 @@ class LiquidityTrapAgent(BaseAgent):
     WICK_RATIO_MIN = 1.8
     LOOKBACK = 20
 
-    def evaluate(self, candles: list, regime: str) -> AgentSignal:
+    def evaluate(self, candles: list, regime: str, pair: str = None) -> AgentSignal:
         if len(candles) < self.LOOKBACK + 3:
             return self._null_signal("Insufficient candles")
 
@@ -445,7 +454,7 @@ class WilliamsRAgent(BaseAgent):
     NAME = "WilliamsRAgent"
     REGIME_FIT = {"trending": 0.2, "ranging": 1.0, "volatile": 0.3}
 
-    def evaluate(self, candles: list, regime: str) -> AgentSignal:
+    def evaluate(self, candles: list, regime: str, pair: str = None) -> AgentSignal:
         if len(candles) < 20:
             return self._null_signal("Insufficient candles")
 
@@ -525,7 +534,7 @@ class HiddenDivergenceAgent(BaseAgent):
     NAME = "HiddenDivergenceAgent"
     REGIME_FIT = {"trending": 1.0, "ranging": 0.3, "volatile": 0.5}
 
-    def evaluate(self, candles: list, regime: str) -> AgentSignal:
+    def evaluate(self, candles: list, regime: str, pair: str = None) -> AgentSignal:
         if len(candles) < 40:
             return self._null_signal("Insufficient candles")
 
@@ -598,7 +607,7 @@ class FractalAgent(BaseAgent):
     NAME = "FractalAgent"
     REGIME_FIT = {"trending": 0.8, "ranging": 0.3, "volatile": 1.0}
 
-    def evaluate(self, candles: list, regime: str) -> AgentSignal:
+    def evaluate(self, candles: list, regime: str, pair: str = None) -> AgentSignal:
         if len(candles) < 20:
             return self._null_signal("Insufficient candles")
 
@@ -692,17 +701,15 @@ class OrchestratorResult:
 
 class AgentOrchestrator:
     """
-    Runs all four agents and selects the best signal.
-
-    SAFETY RULES:
-        1. No fallback — if no valid signal, returns None
-        2. Regime-lock — only agents with regime_fit >= 0.5 can win
-        3. Minimum confidence 0.50 enforced by AgentSignal.is_valid
+    Runs all 9 agents and selects the best signal.
     """
 
     def __init__(self):
+        # ═══ V1.3: Instantiate External Agents ═══
+        self.cot_agent = COTReportAgent()
+        self.news_agent = NewsSentimentAgent()
+
         self.agents = {
-            # "BreakoutPullbackAgent":  breakout_pullback_agent,  # Enable after 30 signals
             "TrendAgent":             TrendAgent(),
             "MeanReversionAgent":     MeanReversionAgent(),
             "BreakoutAgent":          BreakoutAgent(),
@@ -710,6 +717,9 @@ class AgentOrchestrator:
             "WilliamsRAgent":         WilliamsRAgent(),
             "HiddenDivergenceAgent":  HiddenDivergenceAgent(),
             "FractalAgent":           FractalAgent(),
+            # ═══ V1.3: Add External Agents ═══
+            "COTReportAgent":         self.cot_agent,
+            "NewsSentimentAgent":     self.news_agent,
         }
         self.weights: Dict[str, float] = {name: 1.0 for name in self.agents}
 
@@ -719,12 +729,26 @@ class AgentOrchestrator:
                 self.weights[name] = max(0.1, min(w, 3.0))
         logger.info(f"Agent weights updated: {self.weights}")
 
-    def run(self, candles: list, regime: str) -> Optional[OrchestratorResult]:
+    # ═══ V1.3: Async Data Refresher ═══
+    async def refresh_external_data(self):
+        """Safely fetches COT and News data. Throttled internally by the agents."""
+        try: 
+            await self.cot_agent.refresh()
+        except Exception as e: 
+            logger.warning(f"COT refresh error: {e}")
+        try: 
+            await self.news_agent.refresh()
+        except Exception as e: 
+            logger.warning(f"News refresh error: {e}")
+
+    # ═══ V1.3 FIX: Added pair parameter to pass to agents ═══
+    def run(self, candles: list, regime: str, pair: str = "EURUSD") -> Optional[OrchestratorResult]:
         all_signals: Dict[str, AgentSignal] = {}
 
         for name, agent in self.agents.items():
             try:
-                sig = agent.evaluate(candles, regime)
+                # Pass pair so COT/News evaluate the correct instrument
+                sig = agent.evaluate(candles, regime, pair=pair)
                 all_signals[name] = sig
             except Exception as e:
                 logger.warning(f"Agent {name} error: {e}")
