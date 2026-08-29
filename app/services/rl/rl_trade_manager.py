@@ -68,35 +68,35 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # ── Actions ───────────────────────────────────────────────────
-ACTION_HOLD          = 0
-ACTION_CLOSE         = 1
-ACTION_SCALE_HALF    = 2
-ACTION_MOVE_TO_BE    = 3
+ACTION_HOLD = 0
+ACTION_CLOSE = 1
+ACTION_SCALE_HALF = 2
+ACTION_MOVE_TO_BE = 3
 ACTION_TIGHTEN_TRAIL = 4
-N_ACTIONS            = 5
+N_ACTIONS = 5
 
 ACTION_NAMES = {
-    ACTION_HOLD:          "HOLD",
-    ACTION_CLOSE:         "CLOSE",
-    ACTION_SCALE_HALF:    "SCALE_OUT_50%",
-    ACTION_MOVE_TO_BE:    "MOVE_TO_BE",
+    ACTION_HOLD: "HOLD",
+    ACTION_CLOSE: "CLOSE",
+    ACTION_SCALE_HALF: "SCALE_OUT_50%",
+    ACTION_MOVE_TO_BE: "MOVE_TO_BE",
     ACTION_TIGHTEN_TRAIL: "TIGHTEN_TRAIL",
 }
 
 # ── State features ────────────────────────────────────────────
-STATE_DIM  = 13    # 1+1+3+2+1+1+1+1+1+1 = 13
+STATE_DIM = 13    # 1+1+3+2+1+1+1+1+1+1 = 13
 REGIME_MAP = {"trending": 0, "ranging": 1, "volatile": 2}
 SESSION_MAP = {"london": 0, "london_newyork": 1, "other": 2}
 
 # ── Training config ────────────────────────────────────────────
-LR          = 3e-4
-CLIP_EPS    = 0.20
+LR = 3e-4
+CLIP_EPS = 0.20
 ENTROPY_BETA = 0.01
-GAE_LAMBDA  = 0.95
-GAMMA       = 0.99
-N_EPOCHS    = 10
-BATCH_SIZE  = 32
-MODEL_PATH  = os.environ.get("RL_MODEL_PATH", "rl_trade_manager.npz")
+GAE_LAMBDA = 0.95
+GAMMA = 0.99
+N_EPOCHS = 10
+BATCH_SIZE = 32
+MODEL_PATH = os.environ.get("RL_MODEL_PATH", "rl_trade_manager.npz")
 MIN_JOURNAL_TRADES = 20   # minimum trades before RL kicks in
 
 
@@ -127,11 +127,11 @@ class PolicyNetwork:
         self.bv = np.zeros(1)
 
     def forward(self, state: np.ndarray) -> Tuple[np.ndarray, float]:
-        h1    = _relu(state @ self.W1 + self.b1)
-        h2    = _relu(h1 @ self.W2 + self.b2)
+        h1 = _relu(state @ self.W1 + self.b1)
+        h2 = _relu(h1 @ self.W2 + self.b2)
         logits = h2 @ self.W3 + self.b3
-        probs  = _softmax(logits)
-        value  = float((h2 @ self.Wv + self.bv)[0])
+        probs = _softmax(logits)
+        value = float((h2 @ self.Wv + self.bv)[0])
         return probs, value
 
     def save(self, path: str):
@@ -141,10 +141,14 @@ class PolicyNetwork:
     def load(self, path: str) -> bool:
         try:
             data = np.load(path)
-            self.W1 = data["W1"]; self.b1 = data["b1"]
-            self.W2 = data["W2"]; self.b2 = data["b2"]
-            self.W3 = data["W3"]; self.b3 = data["b3"]
-            self.Wv = data["Wv"]; self.bv = data["bv"]
+            self.W1 = data["W1"]
+            self.b1 = data["b1"]
+            self.W2 = data["W2"]
+            self.b2 = data["b2"]
+            self.W3 = data["W3"]
+            self.b3 = data["b3"]
+            self.Wv = data["Wv"]
+            self.bv = data["bv"]
             return True
         except Exception as e:
             logger.debug(f"RL model load failed: {e}")
@@ -164,27 +168,27 @@ class PolicyNetwork:
 
 @dataclass
 class TradeState:
-    unrealised_r:      float    
-    time_held_pct:     float    
-    regime:            str
-    session:           str
-    atr_ratio:         float    
-    price_momentum:    float    
-    sl_distance_r:     float    
-    tp1_distance_r:    float    
-    drawdown_from_peak: float   
-    confidence_at_entry: float  
-    tp1_hit:           bool
-    sl_at_be:          bool
+    unrealised_r: float
+    time_held_pct: float
+    regime: str
+    session: str
+    atr_ratio: float
+    price_momentum: float
+    sl_distance_r: float
+    tp1_distance_r: float
+    drawdown_from_peak: float
+    confidence_at_entry: float
+    tp1_hit: bool
+    sl_at_be: bool
 
 
 def encode_state(state: TradeState) -> np.ndarray:
-    regime_enc  = [0.0, 0.0, 0.0]
-    regime_idx  = REGIME_MAP.get(state.regime, 2)
+    regime_enc = [0.0, 0.0, 0.0]
+    regime_idx = REGIME_MAP.get(state.regime, 2)
     regime_enc[regime_idx] = 1.0
 
     session_enc = [0.0, 0.0]
-    sess_idx    = SESSION_MAP.get(state.session, 2)
+    sess_idx = SESSION_MAP.get(state.session, 2)
     if sess_idx < 2:
         session_enc[sess_idx] = 1.0
 
@@ -211,12 +215,12 @@ def encode_state(state: TradeState) -> np.ndarray:
 
 @dataclass
 class Trajectory:
-    states:   List[np.ndarray]
-    actions:  List[int]
-    rewards:  List[float]
-    values:   List[float]
+    states: List[np.ndarray]
+    actions: List[int]
+    rewards: List[float]
+    values: List[float]
     log_probs: List[float]
-    done:     bool = True
+    done: bool = True
 
 
 class PPOTrainer:
@@ -226,7 +230,10 @@ class PPOTrainer:
 
     def compute_advantages(self, rewards, values, gamma=GAMMA, lam=GAE_LAMBDA):
         n = len(rewards)
-        returns = np.zeros(n); advs = np.zeros(n); gae = 0.0; next_val = 0.0
+        returns = np.zeros(n)
+        advs = np.zeros(n)
+        gae = 0.0
+        next_val = 0.0
         for t in reversed(range(n)):
             next_val = 0.0 if t == n - 1 else values[t + 1]
             delta = rewards[t] + gamma * next_val - values[t]
@@ -239,11 +246,17 @@ class PPOTrainer:
         all_states, all_actions, all_old_logp = [], [], []
         all_returns, all_advs = [], []
         for traj in trajectories:
-            if len(traj.states) < 2: continue
+            if len(traj.states) < 2:
+                continue
             advs, rets = self.compute_advantages(traj.rewards, traj.values)
-            all_states.extend(traj.states); all_actions.extend(traj.actions)
-            all_old_logp.extend(traj.log_probs); all_returns.extend(rets.tolist()); all_advs.extend(advs.tolist())
-        if not all_states: return {}
+            all_states.extend(traj.states)
+            all_actions.extend(traj.actions)
+            all_old_logp.extend(traj.log_probs)
+            all_returns.extend(rets.tolist())
+            all_advs.extend(advs.tolist())
+            
+        if not all_states:
+            return {}
 
         states = np.array(all_states, dtype=np.float32)
         actions = np.array(all_actions, dtype=np.int32)
@@ -257,9 +270,14 @@ class PPOTrainer:
             idxs = np.random.permutation(len(states))
             for start in range(0, len(states), BATCH_SIZE):
                 batch = idxs[start: start + BATCH_SIZE]
-                s_b, a_b, olp_b, ret_b, adv_b = states[batch], actions[batch], old_logps[batch], returns[batch], advs[batch]
+                s_b = states[batch]
+                a_b = actions[batch]
+                olp_b = old_logps[batch]
+                ret_b = returns[batch]
+                adv_b = advs[batch]
+                
                 probs_b = np.array([self.policy.forward(s)[0] for s in s_b])
-                vals_b  = np.array([self.policy.forward(s)[1] for s in s_b])
+                vals_b = np.array([self.policy.forward(s)[1] for s in s_b])
                 new_logps = np.log(probs_b[np.arange(len(a_b)), a_b] + 1e-8)
                 ratios = np.exp(new_logps - olp_b)
                 surr1 = ratios * adv_b
@@ -267,6 +285,7 @@ class PPOTrainer:
                 policy_loss = -np.mean(np.minimum(surr1, surr2))
                 value_loss = np.mean((ret_b - vals_b) ** 2)
                 entropy = -np.mean(np.sum(probs_b * np.log(probs_b + 1e-8), axis=1))
+                
                 self._gradient_step(s_b, a_b, adv_b, ret_b, olp_b, LR)
                 metrics["policy_loss"].append(float(policy_loss))
                 metrics["value_loss"].append(float(value_loss))
@@ -278,26 +297,41 @@ class PPOTrainer:
 
     def _gradient_step(self, states, actions, advantages, returns, old_logps, lr):
         for s, a, adv, ret in zip(states, actions, advantages, returns):
-            z1 = s @ self.policy.W1 + self.policy.b1; h1 = _relu(z1)
-            z2 = h1 @ self.policy.W2 + self.policy.b2; h2 = _relu(z2)
-            logits = h2 @ self.policy.W3 + self.policy.b3; probs = _softmax(logits)
+            z1 = s @ self.policy.W1 + self.policy.b1
+            h1 = _relu(z1)
+            z2 = h1 @ self.policy.W2 + self.policy.b2
+            h2 = _relu(z2)
+            logits = h2 @ self.policy.W3 + self.policy.b3
+            probs = _softmax(logits)
             val = float((h2 @ self.policy.Wv + self.policy.bv)[0])
 
-            d_logits = probs.copy(); d_logits[a] -= 1.0; d_logits *= adv
-            dW3 = np.outer(h2, d_logits); db3 = d_logits
+            d_logits = probs.copy()
+            d_logits[a] -= 1.0
+            d_logits *= adv
+            dW3 = np.outer(h2, d_logits)
+            db3 = d_logits
             d_val = (val - ret) * 2.0
-            dWv = np.outer(h2, np.array([d_val])); dbv = np.array([d_val])
+            dWv = np.outer(h2, np.array([d_val]))
+            dbv = np.array([d_val])
 
             d_h2 = (d_logits @ self.policy.W3.T) + (d_val * self.policy.Wv.T)
-            d_z2 = d_h2 * (z2 > 0); dW2 = np.outer(h1, d_z2); db2 = d_z2
-            d_h1 = d_z2 @ self.policy.W2.T; d_z1 = d_h1 * (z1 > 0)
-            dW1 = np.outer(s, d_z1); db1 = d_z1
+            d_z2 = d_h2 * (z2 > 0)
+            dW2 = np.outer(h1, d_z2)
+            db2 = d_z2
+            d_h1 = d_z2 @ self.policy.W2.T
+            d_z1 = d_h1 * (z1 > 0)
+            dW1 = np.outer(s, d_z1)
+            db1 = d_z1
 
             scale = lr * 0.01 
-            self.policy.W3 -= dW3 * scale; self.policy.b3 -= db3 * scale
-            self.policy.W2 -= dW2 * scale; self.policy.b2 -= db2 * scale
-            self.policy.W1 -= dW1 * scale; self.policy.b1 -= db1 * scale
-            self.policy.Wv -= dWv * scale * 0.5; self.policy.bv -= dbv * scale * 0.5
+            self.policy.W3 -= dW3 * scale
+            self.policy.b3 -= db3 * scale
+            self.policy.W2 -= dW2 * scale
+            self.policy.b2 -= db2 * scale
+            self.policy.W1 -= dW1 * scale
+            self.policy.b1 -= db1 * scale
+            self.policy.Wv -= dWv * scale * 0.5
+            self.policy.bv -= dbv * scale * 0.5
 
 
 # ════════════════════════════════════════════════════════════
@@ -310,7 +344,8 @@ class TrajectoryBuilder:
         trajectories = []
         for entry in entries:
             traj = self._entry_to_trajectory(entry)
-            if traj: trajectories.append(traj)
+            if traj:
+                trajectories.append(traj)
         return trajectories
 
     def _entry_to_trajectory(self, entry) -> Optional[Trajectory]:
@@ -328,33 +363,52 @@ class TrajectoryBuilder:
                 progress = step / max(n_events - 1, 1)
                 unrealised_r = r_final * progress * 1.2 if outcome == "win" else -1.0 * progress * 0.8
 
-                state = TradeState(unrealised_r=unrealised_r, time_held_pct=progress, regime=regime, session=session,
-                    atr_ratio=1.0 + np.random.normal(0, 0.1), price_momentum=unrealised_r * 0.3,
-                    sl_distance_r=max(0.1, 1.0 - progress * 0.3), tp1_distance_r=max(0.0, (1.5 - unrealised_r)),
-                    drawdown_from_peak=max(0, unrealised_r * 0.1), confidence_at_entry=confidence,
-                    tp1_hit=unrealised_r > 1.5, sl_at_be=step > 1 and outcome == "win")
+                state = TradeState(
+                    unrealised_r=unrealised_r,
+                    time_held_pct=progress,
+                    regime=regime,
+                    session=session,
+                    atr_ratio=1.0 + np.random.normal(0, 0.1),
+                    price_momentum=unrealised_r * 0.3,
+                    sl_distance_r=max(0.1, 1.0 - progress * 0.3),
+                    tp1_distance_r=max(0.0, (1.5 - unrealised_r)),
+                    drawdown_from_peak=max(0, unrealised_r * 0.1),
+                    confidence_at_entry=confidence,
+                    tp1_hit=unrealised_r > 1.5,
+                    sl_at_be=step > 1 and outcome == "win"
+                )
                 
                 enc = encode_state(state)
                 probs, val = PolicyNetwork().forward(enc)
 
                 action = ACTION_HOLD
-                if step == n_events - 1: action = ACTION_CLOSE
+                if step == n_events - 1:
+                    action = ACTION_CLOSE
                 elif mgmt_events and step < len(mgmt_events):
                     ev = str(mgmt_events[step]).upper()
-                    if "TP1" in ev: action = ACTION_SCALE_HALF
-                    elif "BE" in ev or "BREAKEVEN" in ev: action = ACTION_MOVE_TO_BE
-                    elif "TRAIL" in ev: action = ACTION_TIGHTEN_TRAIL
-                    elif "CLOSE" in ev or "SL" in ev: action = ACTION_CLOSE
+                    if "TP1" in ev:
+                        action = ACTION_SCALE_HALF
+                    elif "BE" in ev or "BREAKEVEN" in ev:
+                        action = ACTION_MOVE_TO_BE
+                    elif "TRAIL" in ev:
+                        action = ACTION_TIGHTEN_TRAIL
+                    elif "CLOSE" in ev or "SL" in ev:
+                        action = ACTION_CLOSE
 
                 reward = r_final if step == n_events - 1 else (unrealised_r * 0.1) - (state.drawdown_from_peak * 0.05)
-                states.append(enc); actions.append(action); rewards.append(reward)
-                values.append(val); log_probs.append(float(np.log(probs[action] + 1e-8)))
+                states.append(enc)
+                actions.append(action)
+                rewards.append(reward)
+                values.append(val)
+                log_probs.append(float(np.log(probs[action] + 1e-8)))
 
             return Trajectory(states=states, actions=actions, rewards=rewards, values=values, log_probs=log_probs, done=True)
-        except Exception: return None
+        except Exception:
+            return None
 
     def build_synthetic(self, n: int = 200) -> List[Trajectory]:
-        trajectories = []; policy = PolicyNetwork()
+        trajectories = []
+        policy = PolicyNetwork()
         for _ in range(n):
             outcome = np.random.choice(["win", "loss"], p=[0.55, 0.45])
             regime = np.random.choice(["trending", "ranging", "volatile"])
@@ -365,16 +419,29 @@ class TrajectoryBuilder:
             for step in range(n_steps):
                 progress = step / max(n_steps - 1, 1)
                 unrealised_r = r_final * progress * np.random.uniform(0.8, 1.2)
-                state = TradeState(unrealised_r=unrealised_r, time_held_pct=progress, regime=regime, session=session,
-                    atr_ratio=np.random.uniform(0.8, 1.5), price_momentum=np.random.normal(0, 0.5),
-                    sl_distance_r=max(0.1, np.random.uniform(0.5, 1.5)), tp1_distance_r=max(0.0, np.random.uniform(0, 2.0)),
-                    drawdown_from_peak=np.random.uniform(0, 0.5), confidence_at_entry=np.random.uniform(0.5, 0.8),
-                    tp1_hit=step > 2 and outcome == "win", sl_at_be=step > 1 and outcome == "win")
-                enc = encode_state(state); probs, val = policy.forward(enc)
+                state = TradeState(
+                    unrealised_r=unrealised_r,
+                    time_held_pct=progress,
+                    regime=regime,
+                    session=session,
+                    atr_ratio=np.random.uniform(0.8, 1.5),
+                    price_momentum=np.random.normal(0, 0.5),
+                    sl_distance_r=max(0.1, np.random.uniform(0.5, 1.5)),
+                    tp1_distance_r=max(0.0, np.random.uniform(0, 2.0)),
+                    drawdown_from_peak=np.random.uniform(0, 0.5),
+                    confidence_at_entry=np.random.uniform(0.5, 0.8),
+                    tp1_hit=step > 2 and outcome == "win",
+                    sl_at_be=step > 1 and outcome == "win"
+                )
+                enc = encode_state(state)
+                probs, val = policy.forward(enc)
                 action = int(np.random.choice(N_ACTIONS, p=probs))
                 reward = r_final if step == n_steps - 1 else (unrealised_r * 0.1) - (state.drawdown_from_peak * 0.05)
-                states.append(enc); actions.append(action); rewards.append(reward)
-                values.append(val); log_probs.append(float(np.log(probs[action] + 1e-8)))
+                states.append(enc)
+                actions.append(action)
+                rewards.append(reward)
+                values.append(val)
+                log_probs.append(float(np.log(probs[action] + 1e-8)))
             trajectories.append(Trajectory(states=states, actions=actions, rewards=rewards, values=values, log_probs=log_probs))
         return trajectories
 
@@ -386,33 +453,34 @@ class TrajectoryBuilder:
 @dataclass
 class RLManagedPosition:
     """Position managed by RL policy."""
-    pair:           str
-    direction:      str
-    entry:          float
-    stop_loss:      float
-    take_profit_1:  float
-    take_profit_2:  float
-    take_profit_3:  float = 0.0     # ADDED FOR V5.6
-    atr_at_entry:   float = 0.0
-    lots:           float = 0.0
+    pair: str
+    direction: str
+    entry: float
+    stop_loss: float
+    take_profit_1: float
+    take_profit_2: float
+    take_profit_3: float = 0.0     # ADDED FOR V5.6
+    atr_at_entry: float = 0.0
+    lots: float = 0.0
     lots_remaining: float = 0.0
-    regime:         str = "unknown"
-    session:        str = "other"
-    timeframe:      str = "1h"      # ADDED FOR V5.6
-    confidence:     float = 0.60
-    win_prob:       float = 0.50    # ADDED FOR V5.6
-    agent:          str = ""
-    reasoning:      str = ""        # ADDED FOR V5.6
-    opened_at:      str = ""
-    peak_price:     float = 0.0
-    tp1_hit:        bool = False
-    sl_at_be:       bool = False
-    rl_actions:     List[str] = field(default_factory=list)
-    bar_count:      int = 0
+    regime: str = "unknown"
+    session: str = "other"
+    timeframe: str = "1h"          # ADDED FOR V5.6
+    confidence: float = 0.60
+    win_prob: float = 0.50         # ADDED FOR V5.6
+    agent: str = ""
+    reasoning: str = ""            # ADDED FOR V5.6
+    opened_at: str = ""
+    peak_price: float = 0.0
+    tp1_hit: bool = False
+    sl_at_be: bool = False
+    rl_actions: List[str] = field(default_factory=list)
+    bar_count: int = 0
 
     def age_hours(self) -> float:
         dt = datetime.fromisoformat(self.opened_at.replace("Z", "+00:00"))
-        if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
         return (datetime.now(timezone.utc) - dt).total_seconds() / 3600
 
     @property
@@ -424,11 +492,17 @@ class RLTradeManager:
     FALLBACK_TIMEOUT_H = {"trending": 72, "ranging": 24, "volatile": 12}
 
     def __init__(self, journal=None, telegram=None, learning_loop=None):
-        self.journal = journal; self.telegram = telegram; self.learning = learning_loop
-        self._policy = PolicyNetwork(); self._trainer = PPOTrainer(self._policy)
+        self.journal = journal
+        self.telegram = telegram
+        self.learning = learning_loop
+        self._policy = PolicyNetwork()
+        self._trainer = PPOTrainer(self._policy)
         self._builder = TrajectoryBuilder()
         self._positions: Dict[str, RLManagedPosition] = {}
-        self._closed_log: List[Dict] = []; self._trained = False; self._action_log: List[Dict] = []
+        self._closed_log: List[Dict] = []
+        self._trained = False
+        self._action_log: List[Dict] = []
+        
         if self._policy.load(MODEL_PATH):
             self._trained = True
             logger.info(f"RL Trade Manager: loaded model from {MODEL_PATH}")
@@ -436,15 +510,23 @@ class RLTradeManager:
             logger.info("RL Trade Manager: no model found — will use synthetic bootstrap")
 
     def train(self, journal=None) -> Dict:
-        journal = journal or self.journal; trajectories = []
+        journal = journal or self.journal
+        trajectories = []
         if journal:
-            real_trajs = self._builder.build_from_journal(journal); trajectories.extend(real_trajs)
+            real_trajs = self._builder.build_from_journal(journal)
+            trajectories.extend(real_trajs)
+            
         if len(trajectories) < MIN_JOURNAL_TRADES:
             n_synthetic = max(200, MIN_JOURNAL_TRADES * 5 - len(trajectories))
-            syn_trajs = self._builder.build_synthetic(n_synthetic); trajectories.extend(syn_trajs)
-        if not trajectories: return {"error": "No training data available"}
+            syn_trajs = self._builder.build_synthetic(n_synthetic)
+            trajectories.extend(syn_trajs)
+            
+        if not trajectories:
+            return {"error": "No training data available"}
+            
         metrics = self._trainer.ppo_update(trajectories)
-        self._policy.save(MODEL_PATH); self._trained = True
+        self._policy.save(MODEL_PATH)
+        self._trained = True
         return {"n_trajectories": len(trajectories), "metrics": metrics, "model_saved": MODEL_PATH}
 
     def open_position(
@@ -467,42 +549,59 @@ class RLTradeManager:
         return pos
 
     async def check_bar_stops(self, *args, **kwargs):
-		"""Dummy method for V5 main.py compatibility. RL handles stops inside update_all."""
-		return []
+        """Dummy method for V5 main.py compatibility. RL handles stops inside update_all."""
+        return []
 
     async def update_all(self, current_prices: Dict[str, float], current_candles: Optional[Dict] = None, current_atr: Optional[Dict] = None) -> List[Dict]:
-        events = []; to_close = []
+        events = []
+        to_close = []
         for pair, pos in self._positions.items():
             price = current_prices.get(pair)
-            if not price: continue
+            if not price:
+                continue
+                
             pos.bar_count += 1
             pos.peak_price = max(pos.peak_price, price) if pos.direction == "buy" else min(pos.peak_price, price)
 
             sl_hit = (pos.direction == "buy" and price <= pos.stop_loss) or (pos.direction == "sell" and price >= pos.stop_loss)
             if sl_hit:
-                ev = await self._close_position(pos, price, "SL_HIT"); events.append(ev); to_close.append(pair); continue
+                ev = await self._close_position(pos, price, "SL_HIT")
+                events.append(ev)
+                to_close.append(pair)
+                continue
 
             timeout_h = self.FALLBACK_TIMEOUT_H.get(pos.regime, 48)
             if pos.age_hours() >= timeout_h * 1.5:
-                ev = await self._close_position(pos, price, "TIMEOUT"); events.append(ev); to_close.append(pair); continue
+                ev = await self._close_position(pos, price, "TIMEOUT")
+                events.append(ev)
+                to_close.append(pair)
+                continue
 
             state = self._build_state(pos, price, current_candles, current_atr)
             action = self._get_action(state)
-            action_name = ACTION_NAMES[action]; pos.rl_actions.append(action_name)
+            action_name = ACTION_NAMES[action]
+            pos.rl_actions.append(action_name)
 
             if action == ACTION_CLOSE:
-                ev = await self._close_position(pos, price, "RL_CLOSE"); events.append(ev); to_close.append(pair)
+                ev = await self._close_position(pos, price, "RL_CLOSE")
+                events.append(ev)
+                to_close.append(pair)
             elif action == ACTION_SCALE_HALF and not pos.tp1_hit:
-                lots_close = round(pos.lots * 0.50, 2); pos.lots_remaining -= lots_close; pos.tp1_hit = True
+                lots_close = round(pos.lots * 0.50, 2)
+                pos.lots_remaining -= lots_close
+                pos.tp1_hit = True
                 pos.stop_loss = pos.entry + (pos.atr_at_entry * 0.05 if pos.direction == "buy" else -pos.atr_at_entry * 0.05)
-                pos.sl_at_be = True; pnl = self._calc_pnl(pos, price, lots_close)
+                pos.sl_at_be = True
+                pnl = self._calc_pnl(pos, price, lots_close)
                 ev = {"action": "SCALE_OUT_50%", "pair": pair, "price": price, "lots_closed": lots_close, "pnl": pnl}
                 events.append(ev)
                 await self._send(f"🤖 <b>RL SCALE OUT 50%</b>\n{pair} @ {price:.5f} | +${pnl:.2f}\nSL moved to BE: {pos.stop_loss:.5f}")
             elif action == ACTION_MOVE_TO_BE and not pos.sl_at_be:
                 new_sl = pos.entry + (pos.atr_at_entry * 0.05 if pos.direction == "buy" else -pos.atr_at_entry * 0.05)
-                pos.stop_loss = new_sl; pos.sl_at_be = True
-                ev = {"action": "MOVE_TO_BE", "pair": pair, "new_sl": new_sl}; events.append(ev)
+                pos.stop_loss = new_sl
+                pos.sl_at_be = True
+                ev = {"action": "MOVE_TO_BE", "pair": pair, "new_sl": new_sl}
+                events.append(ev)
                 await self._send(f"🛡️ <b>RL MOVE TO BE</b>\n{pair} SL moved to Breakeven: {new_sl:.5f}")
             elif action == ACTION_TIGHTEN_TRAIL:
                 atr = (current_atr or {}).get(pair, pos.atr_at_entry)
@@ -513,23 +612,43 @@ class RLTradeManager:
                 elif pos.direction == "sell" and new_sl < pos.stop_loss:
                     pos.stop_loss = new_sl
                     await self._send(f"📉 <b>RL TRAIL TIGHTENED</b>\n{pair} New Trailing SL: {new_sl:.5f}")
-                ev = {"action": "TIGHTEN_TRAIL", "pair": pair, "new_sl": pos.stop_loss}; events.append(ev)
+                ev = {"action": "TIGHTEN_TRAIL", "pair": pair, "new_sl": pos.stop_loss}
+                events.append(ev)
 
             tp1_hit = ((pos.direction == "buy" and price >= pos.take_profit_1) or (pos.direction == "sell" and price <= pos.take_profit_1)) and not pos.tp1_hit
             if tp1_hit:
-                lots_close = round(pos.lots * 0.40, 2); pnl = self._calc_pnl(pos, pos.take_profit_1, lots_close)
-                pos.lots_remaining -= lots_close; pos.tp1_hit = True; pos.sl_at_be = True; pos.stop_loss = pos.entry
-                ev = {"action": "TP1_HIT", "pair": pair, "pnl": pnl}; events.append(ev)
+                lots_close = round(pos.lots * 0.40, 2)
+                pnl = self._calc_pnl(pos, pos.take_profit_1, lots_close)
+                pos.lots_remaining -= lots_close
+                pos.tp1_hit = True
+                pos.sl_at_be = True
+                pos.stop_loss = pos.entry
+                ev = {"action": "TP1_HIT", "pair": pair, "pnl": pnl}
+                events.append(ev)
 
             tp2_hit = ((pos.direction == "buy" and price >= pos.take_profit_2) or (pos.direction == "sell" and price <= pos.take_profit_2)) and pos.tp1_hit
             if tp2_hit and pos.lots_remaining > 0:
-                ev = await self._close_position(pos, pos.take_profit_2, "TP2_HIT"); events.append(ev); to_close.append(pair)
+                ev = await self._close_position(pos, pos.take_profit_2, "TP2_HIT")
+                events.append(ev)
+                to_close.append(pair)
 
-            self._action_log.append({"pair": pair, "action": action_name, "price": price, "unrealised_r": self._unrealised_r(pos, price), "timestamp": datetime.now(timezone.utc).isoformat()})
+            self._action_log.append({
+                "pair": pair,
+                "action": action_name,
+                "price": price,
+                "unrealised_r": self._unrealised_r(pos, price),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
 
         for pair in to_close:
             pos = self._positions.pop(pair, None)
-            if pos: self._closed_log.append({"pair": pos.pair, "direction": pos.direction, "rl_actions": pos.rl_actions, "age_hours": pos.age_hours()})
+            if pos:
+                self._closed_log.append({
+                    "pair": pos.pair,
+                    "direction": pos.direction,
+                    "rl_actions": pos.rl_actions,
+                    "age_hours": pos.age_hours()
+                })
         return events
 
     def _build_state(self, pos, price, candles_map, atr_map):
@@ -538,24 +657,40 @@ class RLTradeManager:
         unrealised_r = self._unrealised_r(pos, price)
         timeout_h = self.FALLBACK_TIMEOUT_H.get(pos.regime, 48)
         momentum = 0.0
+        
         if candles_map and pos.pair in candles_map:
             candles = candles_map[pos.pair]
             if len(candles) >= 10:
                 closes = [c.close for c in candles[-10:]]
                 momentum = (closes[-1] - closes[0]) / max(atr, 1e-9) / 10
+                
         peak_r = ((pos.peak_price - pos.entry) / risk_dist) if pos.direction == "buy" else ((pos.entry - pos.peak_price) / risk_dist)
         drawdown_r = max(0, peak_r - unrealised_r)
-        return TradeState(unrealised_r=unrealised_r, time_held_pct=min(1.0, pos.age_hours() / max(timeout_h, 1)),
-            regime=pos.regime, session=pos.session, atr_ratio=atr / max(pos.atr_at_entry, 1e-9), price_momentum=momentum,
-            sl_distance_r=abs(price - pos.stop_loss) / risk_dist, tp1_distance_r=abs(pos.take_profit_1 - price) / risk_dist,
-            drawdown_from_peak=drawdown_r, confidence_at_entry=pos.confidence, tp1_hit=pos.tp1_hit, sl_at_be=pos.sl_at_be)
+        
+        return TradeState(
+            unrealised_r=unrealised_r,
+            time_held_pct=min(1.0, pos.age_hours() / max(timeout_h, 1)),
+            regime=pos.regime,
+            session=pos.session,
+            atr_ratio=atr / max(pos.atr_at_entry, 1e-9),
+            price_momentum=momentum,
+            sl_distance_r=abs(price - pos.stop_loss) / risk_dist,
+            tp1_distance_r=abs(pos.take_profit_1 - price) / risk_dist,
+            drawdown_from_peak=drawdown_r,
+            confidence_at_entry=pos.confidence,
+            tp1_hit=pos.tp1_hit,
+            sl_at_be=pos.sl_at_be
+        )
 
     def _get_action(self, state):
-        if not self._trained: return ACTION_HOLD
+        if not self._trained:
+            return ACTION_HOLD
         try:
-            enc = encode_state(state); probs, _ = self._policy.forward(enc)
+            enc = encode_state(state)
+            probs, _ = self._policy.forward(enc)
             return int(np.argmax(probs))
-        except Exception: return ACTION_HOLD
+        except Exception:
+            return ACTION_HOLD
 
     def _unrealised_r(self, pos, price):
         risk = max(pos.risk_distance, 1e-9)
@@ -572,20 +707,26 @@ class RLTradeManager:
 
         if self.learning:
             try:
-                self.learning.update(pair=pos.pair, agent_name=pos.agent, direction=pos.direction, entry=pos.entry,
+                self.learning.update(
+                    pair=pos.pair, agent_name=pos.agent, direction=pos.direction, entry=pos.entry,
                     exit_price=price, stop=pos.stop_loss, tp1=pos.take_profit_1, outcome=outcome,
-                    r_multiple=r_mult, regime=pos.regime, confidence=pos.confidence, session=pos.session)
-            except Exception as e: logger.debug(f"RL learning update: {e}")
+                    r_multiple=r_mult, regime=pos.regime, confidence=pos.confidence, session=pos.session
+                )
+            except Exception as e:
+                logger.debug(f"RL learning update: {e}")
 
         try:
             from app.services.v5_orchestrator_final import get_v5
             v5 = get_v5()
             if v5:
-                await v5.on_trade_closed(pair=pos.pair, agent_name=pos.agent, direction=pos.direction,
+                await v5.on_trade_closed(
+                    pair=pos.pair, agent_name=pos.agent, direction=pos.direction,
                     entry=pos.entry, exit_price=price, stop=pos.stop_loss, tp1=pos.take_profit_1, 
                     outcome=outcome, r_multiple=r_mult, pnl_usd=pnl, regime=pos.regime, 
-                    confidence=pos.confidence, session=pos.session, management_events=pos.rl_actions)
-        except Exception as e: logger.error(f"RL failed to notify V5 Orchestrator: {e}")
+                    confidence=pos.confidence, session=pos.session, management_events=pos.rl_actions
+                )
+        except Exception as e:
+            logger.error(f"RL failed to notify V5 Orchestrator: {e}")
 
         emoji = "✅" if outcome == "win" else "❌"
         await self._send(f"{emoji} <b>[RL] {pos.pair} {reason}</b>\n{pos.direction.upper()} | {r_mult:+.2f}R | ${pnl:+.2f}\nRL actions: {' → '.join(pos.rl_actions[-5:])}")
@@ -593,17 +734,38 @@ class RLTradeManager:
 
     async def _send(self, msg: str):
         if self.telegram:
-            try: await self.telegram.send_message(msg)
-            except Exception: pass
+            try:
+                await self.telegram.send_message(msg)
+            except Exception:
+                pass
 
     def get_open_positions(self) -> Dict:
-        return {pair: {"direction": p.direction, "entry": p.entry, "stop_loss": p.stop_loss, "lots_remaining": p.lots_remaining,
-            "age_hours": round(p.age_hours(), 1), "tp1_hit": p.tp1_hit, "sl_at_be": p.sl_at_be,
-            "rl_actions": p.rl_actions[-5:], "last_action": p.rl_actions[-1] if p.rl_actions else None} for pair, p in self._positions.items()}
+        return {
+            pair: {
+                "direction": p.direction,
+                "entry": p.entry,
+                "stop_loss": p.stop_loss,
+                "lots_remaining": p.lots_remaining,
+                "age_hours": round(p.age_hours(), 1),
+                "tp1_hit": p.tp1_hit,
+                "sl_at_be": p.sl_at_be,
+                "rl_actions": p.rl_actions[-5:],
+                "last_action": p.rl_actions[-1] if p.rl_actions else None
+            } for pair, p in self._positions.items()
+        }
 
     def get_stats(self) -> Dict:
-        n = len(self._closed_log); action_counts = {}
+        n = len(self._closed_log)
+        action_counts = {}
         for log in self._closed_log:
-            for a in log.get("rl_actions", []): action_counts[a] = action_counts.get(a, 0) + 1
-        return {"trained": self._trained, "model_path": MODEL_PATH, "open_positions": len(self._positions),
-            "closed_trades": n, "action_counts": action_counts, "recent_actions": self._action_log[-20:]}
+            for a in log.get("rl_actions", []):
+                action_counts[a] = action_counts.get(a, 0) + 1
+                
+        return {
+            "trained": self._trained,
+            "model_path": MODEL_PATH,
+            "open_positions": len(self._positions),
+            "closed_trades": n,
+            "action_counts": action_counts,
+            "recent_actions": self._action_log[-20:]
+        }
