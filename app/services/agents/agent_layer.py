@@ -13,6 +13,9 @@ SAFETY CHANGES from v1.1:
 V1.3 CHANGES:
     6. Added `pair: str = None` to all evaluate() signatures for COT/News routing
     7. Integrated COTReportAgent and NewsSentimentAgent
+
+V1.4 CHANGES:
+    8. Added book + structure filters to MeanReversionAgent (A/B test mode)
 """
 
 from __future__ import annotations
@@ -26,6 +29,12 @@ import numpy as np
 # ═══ V1.3: IMPORT EXTERNAL AGENTS ═══
 from .cot_report_agent import COTReportAgent
 from .news_sentiment_agent import NewsSentimentAgent
+
+# ═══ V1.4: IMPORT BOOK FILTERS ═══
+try:
+    from app.services.core import mr_book_filters
+except Exception:
+    mr_book_filters = None
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +225,7 @@ class MeanReversionAgent(BaseAgent):
     """
     RSI extremes + Bollinger Band touch.
     SAFETY: Blocks signals that fight strong trends.
+    V1.4: Added book + structure filters (A/B test mode).
     """
     NAME = "MeanReversionAgent"
     REGIME_FIT = {"trending": 0.2, "ranging": 1.0, "volatile": 0.3}
@@ -274,6 +284,22 @@ class MeanReversionAgent(BaseAgent):
 
         ev = win_prob * _safe_div(tp1_dist, stop_dist) - (1 - win_prob)
 
+        # ═══ V1.4: Book + structure filters (Rayner Ch.5 + your zones) — A/B log ═══
+        book = None
+        if mr_book_filters is not None:
+            book = mr_book_filters.check(candles, direction)
+            would = []
+            if not book["book_passed"]: would.append("book")
+            if not book["struct_passed"]: would.append("structure")
+            if would:
+                logger.info(f"BOOK_MR {pair or self.NAME} {direction}: WOULD_BLOCK({'+'.join(would)}) | {book['summary']}")
+            if not book["passed"]:
+                return self._null_signal(f"MR filter: {book['summary']}")
+
+        raw = {"rsi": rsi, "upper_bb": upper_bb, "lower_bb": lower_bb, "sma20": sma20}
+        if book is not None:
+            raw["book_filters"] = book
+
         return AgentSignal(
             agent_name=self.NAME,
             direction=direction,
@@ -285,7 +311,7 @@ class MeanReversionAgent(BaseAgent):
             tp2_distance=tp2_dist,
             regime_fit=self.REGIME_FIT.get(regime, 0.5),
             reasoning=reasoning,
-            raw_features={"rsi": rsi, "upper_bb": upper_bb, "lower_bb": lower_bb, "sma20": sma20},
+            raw_features=raw,
         )
 
 

@@ -466,9 +466,9 @@ class RLTradeManager:
         logger.info(f"RL TradeManager OPEN: {pair} {direction} @ {entry} SL={stop_loss} Lots={lots}")
         return pos
 
-    async def check_bar_stops(self, current_prices: Dict[str, float], **kwargs):
-        """Dummy method for V5 main.py compatibility. RL handles stops inside update_all."""
-        return []
+    async def check_bar_stops(self, *args, **kwargs):
+		"""Dummy method for V5 main.py compatibility. RL handles stops inside update_all."""
+		return []
 
     async def update_all(self, current_prices: Dict[str, float], current_candles: Optional[Dict] = None, current_atr: Optional[Dict] = None) -> List[Dict]:
         events = []; to_close = []

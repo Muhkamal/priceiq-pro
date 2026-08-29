@@ -283,6 +283,9 @@ async def lifespan(app: FastAPI):
         from app.routers.ai_chat import make_ai_router
         app.include_router(make_ai_router(v5))
         logger.info("AI Chatbot router mounted at /api/v5/ask")
+        from app.services.audit_router import router as audit_router
+        app.include_router(audit_router)
+        logger.info("Audit router mounted at /api/v5/audit")
     except Exception as ai_e:
         logger.warning(f"AI Chatbot router mount failed: {ai_e}")
 
