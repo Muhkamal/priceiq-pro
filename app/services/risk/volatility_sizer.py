@@ -23,13 +23,14 @@ PIP_VALUE_USD: Dict[str, float] = {
     "XAUUSD": 10.0,
     # ═══ NEW: Crypto pip values (1 lot = 1 coin, $1 move = $1 per lot) ═══
     "BTCUSD": 1.0,
-    "ETHUSD": 1.0}
-    "ETHUSD": 1.0}
+    "ETHUSD": 1.0
+}
 
 PIP_SIZE: Dict[str, float] = {
     "XAUUSD": 0.1,
     "USDJPY": 0.01, "EURJPY": 0.01, "GBPJPY": 0.01,
     "AUDJPY": 0.01, "CADJPY": 0.01, "NZDJPY": 0.01, "CHFJPY": 0.01,
+    # ═══ NEW: Crypto pip sizes ($1.00 move = 1 pip) ═══
     "BTCUSD": 1.0,
     "ETHUSD": 1.0
 }
