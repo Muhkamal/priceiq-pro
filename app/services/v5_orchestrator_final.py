@@ -452,7 +452,7 @@ class V5OrchestratorFinal:
             regime      = "ranging"
 
         # ═══ v5.4: Volatile regime override for BTC/Gold ═══
-        if regime == "volatile" and pair.upper() in ("XAUUSD", "SOLUSD", "BTCUSD", "ETHUSD", "XAGUSD", "GBPJPY"):
+        if regime == "volatile" and pair.upper() in ("XAUUSD", "SOLUSD", "BTCUSD", "ETHUSD", "GBPJPY"):
             logger.info(f"[REGIME OVERRIDE] {pair} classified as volatile → treating as trending")
             regime = "trending"
             regime_pred.trending = max(regime_pred.trending, 0.60)
