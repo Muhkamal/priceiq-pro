@@ -693,7 +693,7 @@ class V5OrchestratorFinal:
 
         # ── Gate 7: Adaptive confidence threshold ────────────
         # ═══ v5.6.1 RAISED FLOOR: Hard minimum 0.70 to stop low-probability traps ═══
-        threshold = max(self.learning.get_confidence_threshold(pair), 0.70)
+        threshold = max(self.learning.get_confidence_threshold(pair), 0.65)
 
         # ═══ v5.4: fundamentals + statarb confidence adjustments ═══
         try:
