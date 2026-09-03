@@ -42,7 +42,7 @@ _YF_SYMBOL_MAP = {
     "EURUSD": "EURUSD=X", "GBPUSD": "GBPUSD=X", "USDJPY": "USDJPY=X", "USDCHF": "USDCHF=X",
     "AUDUSD": "AUDUSD=X", "NZDUSD": "NZDUSD=X", "USDCAD": "USDCAD=X", "EURGBP": "EURGBP=X",
     "EURJPY": "EURJPY=X", "GBPJPY": "GBPJPY=X",
-    "XAUUSD": "GC=F": "SI=F"}
+    "XAUUSD": "GC=F"}
 
 # ═══ QUOTA SHIELD: Binance Routing (Free, No Key) ═══
 _BINANCE_SYMBOL_MAP = {

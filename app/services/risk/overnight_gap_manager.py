@@ -54,7 +54,7 @@ FRIDAY_SIZE_CAP     = 0.50   # reduce to 50% on Friday close
 SWAP_LONG:  Dict[str, float] = {
     "EURUSD": -0.72, "GBPUSD": -1.85, "USDJPY": +1.26,
     "USDCHF": +0.46, "USDCAD": -1.02, "AUDUSD": -1.12,
-    "NZDUSD": -0.98, "XAUUSD": -3.50: -2.10,
+    "NZDUSD": -0.98, "XAUUSD": -3.50
     "EURJPY": -0.85, "GBPJPY": -2.10}
 SWAP_SHORT: Dict[str, float] = {
     "EURUSD": -1.10, "GBPUSD": -2.20, "USDJPY": -0.45,
