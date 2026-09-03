@@ -52,20 +52,17 @@ PAIR_SPECIFIC_RULES = {
         "allowed_impacts": ["HIGH"],
         "allowed_currencies": ["USD"],
         "pre_min": 30,
-        "post_min": 30,
-    },
+        "post_min": 30},
     "ETHUSD": {
         "allowed_impacts": ["HIGH"],
         "allowed_currencies": ["USD"],
         "pre_min": 30,
-        "post_min": 30,
-    },
-}
+        "post_min": 30}}
 
 # ── Currency → affected pairs mapping ───────────────────────
 CURRENCY_PAIRS: Dict[str, List[str]] = {
     "USD": ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "USDCAD", "AUDUSD",
-            "NZDUSD", "XAUUSD", "XAGUSD", "BTCUSD", "ETHUSD"],
+            "NZDUSD", "XAUUSD", "BTCUSD", "ETHUSD"],
     "EUR": ["EURUSD", "EURJPY", "EURGBP", "EURCAD", "EURAUD", "EURCHF"],
     "GBP": ["GBPUSD", "GBPJPY", "GBPCAD", "GBPAUD", "EURGBP", "GBPCHF"],
     "JPY": ["USDJPY", "EURJPY", "GBPJPY", "AUDJPY", "CADJPY", "NZDJPY"],
@@ -309,8 +306,7 @@ class EconomicCalendar:
             "total_events": len(events),
             "high_impact":  sum(1 for e in events if e.impact == "HIGH"),
             "next_high":    next_high,
-            "pair_rules":   list(PAIR_SPECIFIC_RULES.keys()),
-        }
+            "pair_rules":   list(PAIR_SPECIFIC_RULES.keys())}
 
     # ── Internal fetch ────────────────────────────────────────
 
@@ -395,8 +391,7 @@ class EconomicCalendar:
             "%Y-%m-%d %H:%M:%S",
             "%Y-%m-%dT%H:%M:%S",
             "%m/%d/%Y %I:%M%p",
-            "%m/%d/%Y %H:%M",
-        ]
+            "%m/%d/%Y %H:%M"]
 
         for fmt in formats:
             try:
@@ -435,8 +430,7 @@ class EconomicCalendar:
             data = {
                 "last_refresh": self._last_refresh.isoformat() if self._last_refresh else None,
                 "events": [e.to_dict() for e in self._events],
-                "manual": [e.to_dict() for e in self._manual_blackouts],
-            }
+                "manual": [e.to_dict() for e in self._manual_blackouts]}
             with open(self._cache_path, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:

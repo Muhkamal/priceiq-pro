@@ -83,7 +83,7 @@ CFTC_CODES: Dict[str, str] = {
     "USDCHF": "092741",   # Swiss Franc (CME) — inverted
     "AUDUSD": "232741",   # Australian Dollar (CME)
     "USDCAD": "090741",   # Canadian Dollar (CME) — inverted
-    "XAGUSD": "084691",   # Silver (COMEX)
+    : "084691",   # Silver (COMEX)
 }
 
 # Pairs where futures are INVERTED vs spot price
@@ -101,8 +101,7 @@ COT_COLUMNS = {
     "comm_short":        "Comm_Positions_Short_All",
     "oi":                "Open_Interest_All",
     "nc_change_long":    "Change_in_NonComm_Long_All",
-    "nc_change_short":   "Change_in_NonComm_Short_All",
-}
+    "nc_change_short":   "Change_in_NonComm_Short_All"}
 
 # Signal thresholds
 COT_INDEX_EXTREME_LONG   = 80    # COT index >= 80 → contrarian SELL
@@ -484,8 +483,7 @@ class COTReportAgent:
                 "nc_pct_oi":     snap.nc_pct_oi,
                 "comm_net":      snap.comm_net,
                 "report_date":   snap.report_date,
-                "commercials_confirm": sig.commercials_confirm,
-            },
+                "commercials_confirm": sig.commercials_confirm},
             cot_signal=sig,
         )
 
@@ -609,11 +607,9 @@ class COTReportAgent:
                     "cot_index":   snap.cot_index if (snap := self._latest.get(pair)) else None,
                     "nc_zscore":   snap.nc_zscore if snap else None,
                     "confidence":  sig.confidence,
-                    "report_date": sig.report_date,
-                }
+                    "report_date": sig.report_date}
                 for pair, sig in self._signals.items()
-            },
-        }
+            }}
 
     def next_refresh_utc(self) -> str:
         """Next expected COT release (Friday 20:30 UTC)."""

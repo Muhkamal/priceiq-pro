@@ -27,11 +27,10 @@ PAIR_CORRELATIONS: Dict[str, List[str]] = {
     "EURUSD": ["GBPUSD", "AUDUSD", "NZDUSD", "EURCAD"],
     "GBPUSD": ["EURUSD", "AUDUSD", "GBPCAD", "GBPJPY"],
     "USDJPY": ["EURJPY", "GBPJPY", "AUDJPY", "CADJPY"],
-    "XAUUSD": ["XAGUSD"],
+    "XAUUSD": [],
     "AUDUSD": ["EURUSD", "NZDUSD", "AUDJPY"],
     "USDCAD": ["CADJPY"],
-    "BTCUSD": ["ETHUSD"],
-}
+    "BTCUSD": ["ETHUSD"]}
 
 CORR_THRESHOLD = 0.70
 
@@ -217,8 +216,7 @@ class RiskGovernor:
             "pnl":  realised_pnl,
             "balance_after": self.current_balance,
             "drawdown": self.drawdown,
-            "consecutive_losses": self._consecutive_losses,
-        })
+            "consecutive_losses": self._consecutive_losses})
 
         logger.info(
             f"RiskGovernor: closed {pair} PnL={realised_pnl:+.2f} "
@@ -249,8 +247,7 @@ class RiskGovernor:
             "open_positions":       len(self._open_positions),
             "open_pairs":           list(self._open_positions.keys()),
             "trading_allowed":      self.drawdown < self.max_drawdown_pct and
-                                    self._consecutive_losses < self.max_consecutive_losses,
-        }
+                                    self._consecutive_losses < self.max_consecutive_losses}
 
     # ── Helpers ──────────────────────────────────────────────
 

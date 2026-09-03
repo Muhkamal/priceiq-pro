@@ -20,21 +20,18 @@ PIP_VALUE_USD: Dict[str, float] = {
     "EURCAD": 7.50, "GBPCAD": 7.50, "EURGBP": 12.50,
     "EURJPY": 9.09, "GBPJPY": 9.09, "AUDJPY": 9.09,
     "CADJPY": 9.09, "NZDJPY": 9.09, "CHFJPY": 9.09,
-    "XAUUSD": 10.0,
-    "XAGUSD": 50.0,
+    "XAUUSD": 10.0: 50.0,
     # ═══ NEW: Crypto pip values (1 lot = 1 coin, $1 move = $1 per lot) ═══
     "BTCUSD": 1.0,
-    "ETHUSD": 1.0,
-}
+    "ETHUSD": 1.0}
 
 PIP_SIZE: Dict[str, float] = {
-    "XAUUSD": 0.1, "XAGUSD": 0.001,
+    "XAUUSD": 0.1: 0.001,
     "USDJPY": 0.01, "EURJPY": 0.01, "GBPJPY": 0.01,
     "AUDJPY": 0.01, "CADJPY": 0.01, "NZDJPY": 0.01, "CHFJPY": 0.01,
     # ═══ NEW: Crypto pip sizes ($1.00 move = 1 pip) ═══
     "BTCUSD": 1.0,
-    "ETHUSD": 1.0,
-}
+    "ETHUSD": 1.0}
 
 MAX_LOTS = 10.0
 MIN_LOTS = 0.01
@@ -193,5 +190,4 @@ class VolatilityTargetedSizer:
             "target_vol_pct":  self.target_vol_pct,
             "max_risk_pct":    self.max_risk_pct,
             "use_kelly":       self.use_kelly,
-            "kelly_fraction":  self.kelly_fraction,
-        }
+            "kelly_fraction":  self.kelly_fraction}

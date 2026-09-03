@@ -175,7 +175,7 @@ class AdaptiveLearner:
         base_threshold = self._pair_thresholds.get(pair.upper(), 0.50)
         
         # ═══ NEW: Lower threshold for crypto and commodities ═══
-        if pair.upper() in ("BTCUSD", "XAUUSD", "ETHUSD", "XAGUSD"):
+        if pair.upper() in ("BTCUSD", "XAUUSD", "ETHUSD"):
             return max(0.45, base_threshold - 0.10)
             
         return base_threshold
@@ -195,8 +195,7 @@ class AdaptiveLearner:
             "expectancy":  round(float(np.mean(r_mults)), 3) if r_mults else None,
             "avg_r":       round(float(np.mean(r_mults)), 3) if r_mults else None,
             "threshold":   self.get_confidence_threshold(pair),
-            "agent_weights": self.get_agent_weights(),
-        }
+            "agent_weights": self.get_agent_weights()}
 
     def get_agent_stats(self, records: List[TradeOutcome]) -> Dict[str, Any]:
         stats = {}
@@ -208,8 +207,7 @@ class AdaptiveLearner:
                 "trades":   len(agent_recs),
                 "win_rate": round(_safe_div(len(wins), len(agent_recs)), 3),
                 "expectancy": round(float(np.mean(r_mults)), 3) if r_mults else 0,
-                "weight":   round(self._agent_weights.get(agent, 1.0), 4),
-            }
+                "weight":   round(self._agent_weights.get(agent, 1.0), 4)}
         return stats
 
 
@@ -293,5 +291,4 @@ class LearningLoop:
             "pairs": {
                 pair: self.learner.get_pair_stats(pair, all_records)
                 for pair in set(r.pair for r in all_records)
-            },
-        }
+            }}

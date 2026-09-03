@@ -35,12 +35,11 @@ STATIC_CORRELATIONS: Dict[Tuple[str, str], float] = {
     ("XAUUSD", "EURUSD"):  0.42,
     ("XAUUSD", "USDCHF"): -0.48,
     ("XAUUSD", "USDJPY"): -0.35,
-    ("XAUUSD", "XAGUSD"):  0.80,
+    ("XAUUSD"):  0.80,
     ("USDJPY", "EURJPY"):  0.75,
     ("USDJPY", "GBPJPY"):  0.70,
     ("USDCAD", "AUDUSD"): -0.62,
-    ("USDCAD", "EURUSD"): -0.58,
-}
+    ("USDCAD", "EURUSD"): -0.58}
 
 
 def _get_static(pair_a: str, pair_b: str) -> float:
@@ -126,8 +125,7 @@ class HybridCorrelationEstimator:
             pair: {
                 "observations": self._obs_count.get(pair.upper(), 0),
                 "warmed_up":    self._obs_count.get(pair.upper(), 0) >= MIN_OBSERVATIONS,
-                "warmup_pct":   round(min(1.0, self._obs_count.get(pair.upper(), 0) / MIN_OBSERVATIONS), 3),
-            }
+                "warmup_pct":   round(min(1.0, self._obs_count.get(pair.upper(), 0) / MIN_OBSERVATIONS), 3)}
             for pair in pairs
         }
 
@@ -147,8 +145,7 @@ class HybridCorrelationEstimator:
             return {
                 "blocked": True,
                 "reason": f"Correlation risk: {details}",
-                "correlated_pairs": correlated,
-            }
+                "correlated_pairs": correlated}
         return {"blocked": False, "reason": "OK", "correlated_pairs": correlated}
 
     def get_correlation_matrix(self, pairs: List[str], regime: str = "trending") -> Dict:
@@ -172,8 +169,7 @@ class HybridCorrelationEstimator:
         return {
             "warmup":    self.warmup_status(pairs),
             "threshold": self._threshold,
-            "window":    self._window,
-        }
+            "window":    self._window}
 
     def observations(self, pair: str) -> int:
         return self._obs_count.get(pair.upper(), 0)

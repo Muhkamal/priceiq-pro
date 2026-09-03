@@ -13,9 +13,8 @@ logger = logging.getLogger(__name__)
 CORR_GROUPS = {
     "usd_majors_eur_gbp": ["EURUSD", "GBPUSD", "AUDUSD", "NZDUSD"],
     "usd_safe": ["USDCHF", "USDJPY"],
-    "commodity": ["XAUUSD", "XAGUSD"],
-    "crypto": ["BTCUSD", "ETHUSD"],
-}
+    "commodity": ["XAUUSD"],
+    "crypto": ["BTCUSD", "ETHUSD"]}
 
 
 class ExposureManager:
@@ -30,8 +29,7 @@ class ExposureManager:
         self._signals.append({
             "pair": pair,
             "direction": direction,
-            "time": datetime.now(timezone.utc),
-        })
+            "time": datetime.now(timezone.utc)})
         self._clean_old()
 
     def _clean_old(self, max_hours: int = 4):

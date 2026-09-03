@@ -29,8 +29,7 @@ _TD_INTERVAL_MAP = {
     "1h": "1h",
     "2h": "2h",
     "4h": "4h",
-    "1d": "1day",
-}
+    "1d": "1day"}
 
 _TD_SYMBOL_MAP = {
     "EURUSD": "EUR/USD",
@@ -43,9 +42,7 @@ _TD_SYMBOL_MAP = {
     "EURGBP": "EUR/GBP",
     "EURJPY": "EUR/JPY",
     "GBPJPY": "GBP/JPY",
-    "XAUUSD": "XAU/USD",
-    "XAGUSD": "XAG/USD",
-}
+    "XAUUSD": "XAU/USD": "XAG/USD"}
 
 
 class TDRateLimitError(Exception):
@@ -126,8 +123,7 @@ class TwelveDataClient:
             "outputsize": limit,
             "apikey": self.api_key,
             "format": "JSON",
-            "order": "ASC",
-        }
+            "order": "ASC"}
         
         url = f"{self.base_url}/time_series"
         
@@ -163,8 +159,7 @@ class TwelveDataClient:
                         "high": h,
                         "low": l,
                         "close": c,
-                        "volume": volume,
-                    })
+                        "volume": volume})
                 except (ValueError, KeyError, TypeError):
                     continue
             

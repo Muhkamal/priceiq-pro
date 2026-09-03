@@ -46,7 +46,7 @@ GAP_CLOSE_ATR_MULT  = 2.5    # gap > 2.5x ATR -> consider force close
 
 # -- Friday risk reduction --------------------------------
 FRIDAY_REDUCE_HOUR  = 17     # 17:00 UTC = NY close (Friday)
-HIGH_GAP_PAIRS      = {"XAUUSD", "XAGUSD", "GBPUSD", "GBPJPY", "USDJPY"}
+HIGH_GAP_PAIRS      = {"XAUUSD", "GBPUSD", "GBPJPY", "USDJPY"}
 FRIDAY_SIZE_CAP     = 0.50   # reduce to 50% on Friday close
 
 # -- Swap costs per lot per night (approximate, check your broker) --
@@ -54,25 +54,21 @@ FRIDAY_SIZE_CAP     = 0.50   # reduce to 50% on Friday close
 SWAP_LONG:  Dict[str, float] = {
     "EURUSD": -0.72, "GBPUSD": -1.85, "USDJPY": +1.26,
     "USDCHF": +0.46, "USDCAD": -1.02, "AUDUSD": -1.12,
-    "NZDUSD": -0.98, "XAUUSD": -3.50, "XAGUSD": -2.10,
-    "EURJPY": -0.85, "GBPJPY": -2.10,
-}
+    "NZDUSD": -0.98, "XAUUSD": -3.50: -2.10,
+    "EURJPY": -0.85, "GBPJPY": -2.10}
 SWAP_SHORT: Dict[str, float] = {
     "EURUSD": -1.10, "GBPUSD": -2.20, "USDJPY": -0.45,
     "USDCHF": -1.12, "USDCAD": -0.38, "AUDUSD": -0.86,
-    "NZDUSD": -0.72, "XAUUSD": -1.80, "XAGUSD": -0.95,
-    "EURJPY": -1.20, "GBPJPY": -1.85,
-}
+    "NZDUSD": -0.72, "XAUUSD": -1.80: -0.95,
+    "EURJPY": -1.20, "GBPJPY": -1.85}
 
 # -- Major market holidays (UTC dates, YYYY-MM-DD) --------
 MARKET_HOLIDAYS_2025 = {
     "2025-01-01", "2025-04-18", "2025-04-21",
-    "2025-12-25", "2025-12-26",
-}
+    "2025-12-25", "2025-12-26"}
 MARKET_HOLIDAYS_2026 = {
     "2026-01-01", "2026-04-03", "2026-04-06",
-    "2026-12-25", "2026-12-28",
-}
+    "2026-12-25", "2026-12-28"}
 
 
 def _atr(candles: List, period: int = 14) -> float:
@@ -152,8 +148,7 @@ class OvernightGapManager:
                     "Friday Risk Reduction",
                     f"{pair_u}: High gap-risk pair open over weekend.",
                     f"Lots: {lots} | Price: {price}",
-                    f"Recommended: reduce to {lots * FRIDAY_SIZE_CAP:.2f}L or close.",
-                ])
+                    f"Recommended: reduce to {lots * FRIDAY_SIZE_CAP:.2f}L or close."])
                 await self._send(msg)
                 actions[pair_u] = f"WARN: high gap risk pair, recommend reduction"
                 logger.warning(f"Friday gap risk: {pair_u} open with {lots}L")
@@ -166,8 +161,7 @@ class OvernightGapManager:
                 "Friday Close Summary",
                 f"Open positions: {len(open_positions)}",
                 f"High-gap pairs: {sum(1 for p in open_positions if p.upper() in HIGH_GAP_PAIRS)}",
-                "Swap costs will accrue over weekend (3 nights).",
-            ])
+                "Swap costs will accrue over weekend (3 nights)."])
             await self._send(summary)
         return actions
 
@@ -230,8 +224,7 @@ class OvernightGapManager:
                     f"Thu close: {thursday_close:.5f}",
                     f"Sun open:  {sunday_open:.5f}",
                     f"Gap: {gap_pips:.1f} pips {gap_dir} ({mult:.1f}x ATR)",
-                    f"Action: {action}",
-                ])
+                    f"Action: {action}"])
                 await self._send(alert_msg)
 
         return reports
@@ -297,8 +290,7 @@ class OvernightGapManager:
             {
                 "pair": r.pair, "gap_pips": r.gap_pips,
                 "severity": r.severity, "direction": r.direction,
-                "atr_mult": r.gap_atr_mult, "action": r.action,
-            }
+                "atr_mult": r.gap_atr_mult, "action": r.action}
             for r in self._gap_log[-20:]
         ]
 

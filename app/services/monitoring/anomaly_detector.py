@@ -67,9 +67,7 @@ class AnomalyDetector:
     PAIR_THRESHOLDS = {
         "BTCUSD": {"ATR_BLOCK": 6.0, "ATR_WARN": 4.0, "VOL_BLOCK": 8.0, "VOL_WARN": 5.0, "GAP_BLOCK": 3.0, "GAP_WARN": 1.5},
         "ETHUSD": {"ATR_BLOCK": 6.0, "ATR_WARN": 4.0, "VOL_BLOCK": 8.0, "VOL_WARN": 5.0, "GAP_BLOCK": 3.0, "GAP_WARN": 1.5},
-        "XAUUSD": {"ATR_BLOCK": 5.0, "ATR_WARN": 3.0, "VOL_BLOCK": 7.0, "VOL_WARN": 4.5, "GAP_BLOCK": 2.5, "GAP_WARN": 1.2},
-        "XAGUSD": {"ATR_BLOCK": 5.0, "ATR_WARN": 3.0, "VOL_BLOCK": 7.0, "VOL_WARN": 4.5, "GAP_BLOCK": 2.5, "GAP_WARN": 1.2},
-    }
+        "XAUUSD": {"ATR_BLOCK": 5.0, "ATR_WARN": 3.0, "VOL_BLOCK": 7.0, "VOL_WARN": 4.5, "GAP_BLOCK": 2.5, "GAP_WARN": 1.2}: {"ATR_BLOCK": 5.0, "ATR_WARN": 3.0, "VOL_BLOCK": 7.0, "VOL_WARN": 4.5, "GAP_BLOCK": 2.5, "GAP_WARN": 1.2}}
 
     def check(self, candles: List, pair: str = "") -> AnomalyReport:
         """

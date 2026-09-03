@@ -69,9 +69,7 @@ class SessionFilter:
         "EURCHF":   ["london"],
         "AUDJPY":   ["tokyo", "sydney"],
         "CADJPY":   ["tokyo", "newyork"],
-        "XAUUSD":   ["london", "newyork"],
-        "XAGUSD":   ["london", "newyork"],
-    }
+        "XAUUSD":   ["london", "newyork"]:   ["london", "newyork"]}
 
     # Quality boost for session overlaps
     OVERLAP_BOOST = {
@@ -269,8 +267,7 @@ class SessionFilter:
             summary["sessions"][session] = {
                 "name": self.SESSIONS.get(session, {}).get("name", session.upper()),
                 "hours": f"{self.SESSIONS.get(session, {}).get('start', '?')}:00-{self.SESSIONS.get(session, {}).get('end', '?')}:00 UTC",
-                "quality": self.SESSIONS.get(session, {}).get("quality", 0.5),
-            }
+                "quality": self.SESSIONS.get(session, {}).get("quality", 0.5)}
         
         return summary
 

@@ -36,15 +36,13 @@ _BINANCE_BASE = "https://api.binance.com/api/v3/klines"
 
 _AV_INTRADAY_INTERVALS = {
     "1m": "1min", "5m": "5min", "15m": "15min",
-    "30m": "30min", "1h": "60min",
-}
+    "30m": "30min", "1h": "60min"}
 
 _YF_SYMBOL_MAP = {
     "EURUSD": "EURUSD=X", "GBPUSD": "GBPUSD=X", "USDJPY": "USDJPY=X", "USDCHF": "USDCHF=X",
     "AUDUSD": "AUDUSD=X", "NZDUSD": "NZDUSD=X", "USDCAD": "USDCAD=X", "EURGBP": "EURGBP=X",
     "EURJPY": "EURJPY=X", "GBPJPY": "GBPJPY=X",
-    "XAUUSD": "GC=F", "XAGUSD": "SI=F",
-}
+    "XAUUSD": "GC=F": "SI=F"}
 
 # ═══ QUOTA SHIELD: Binance Routing (Free, No Key) ═══
 _BINANCE_SYMBOL_MAP = {
@@ -64,8 +62,7 @@ _CACHE_TTL_DAILY    = 300 * 60
 
 _MAX_AGE_HOURS = {
     "1m": 0.5, "5m": 1, "15m": 2, "30m": 3,
-    "1h": 3, "4h": 6, "1d": 30,
-}
+    "1h": 3, "4h": 6, "1d": 30}
 
 # Thread pool for synchronous yfinance calls
 _executor = ThreadPoolExecutor(max_workers=10)
@@ -300,8 +297,7 @@ class DataFetcher:
         params   = {
             "function": "FX_INTRADAY", "from_symbol": pair[:3],
             "to_symbol": pair[3:], "interval": interval,
-            "outputsize": outputsize, "apikey": self.av_key,
-        }
+            "outputsize": outputsize, "apikey": self.av_key}
         data   = await self._get(self.av_base, params)
         ts_key = f"Time Series FX ({interval})"
         if "Note" in data or "Information" in data: raise RateLimitError("AV rate limit")
@@ -311,8 +307,7 @@ class DataFetcher:
     async def _fetch_av_daily(self, pair: str, outputsize: str) -> List:
         params = {
             "function": "FX_DAILY", "from_symbol": pair[:3],
-            "to_symbol": pair[3:], "outputsize": outputsize, "apikey": self.av_key,
-        }
+            "to_symbol": pair[3:], "outputsize": outputsize, "apikey": self.av_key}
         data   = await self._get(self.av_base, params)
         ts_key = "Time Series FX (Daily)"
         if "Note" in data or "Information" in data: raise RateLimitError("AV rate limit")
@@ -371,8 +366,7 @@ class DataFetcher:
             status[key] = {
                 "cached_seconds_ago": round((now - cached_at).total_seconds()),
                 "candle_count": len(candles),
-                "latest_price": latest.close if latest else None,
-            }
+                "latest_price": latest.close if latest else None}
         status["banned_providers"] = {k: max(0, round(v - time.time())) for k, v in _provider_bans.items() if v > time.time()}
         return status
 

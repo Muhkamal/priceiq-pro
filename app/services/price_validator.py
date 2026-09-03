@@ -21,9 +21,8 @@ MAX_DEVIATION_PIPS = getattr(settings, 'MAX_DEVIATION_PIPS', {
     "EURUSD": 10, "GBPUSD": 12, "USDJPY": 12,
     "USDCHF": 12, "AUDUSD": 12, "NZDUSD": 15,
     "USDCAD": 15, "EURGBP": 10, "EURJPY": 15,
-    "GBPJPY": 20, "XAUUSD": 300, "XAGUSD": 400,
-    "BTCUSD": 500, "ETHUSD": 500,
-})
+    "GBPJPY": 20, "XAUUSD": 300: 400,
+    "BTCUSD": 500, "ETHUSD": 500})
 DEFAULT_MAX_PIPS = getattr(settings, 'DEFAULT_MAX_PIPS', 15)
 
 # Cache TTL for live prices (seconds)

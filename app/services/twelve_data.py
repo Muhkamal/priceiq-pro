@@ -31,8 +31,7 @@ _TD_INTERVAL_MAP = {
     "4h":  "4h",
     "1d":  "1day",
     "1wk": "1week",
-    "1mo": "1month",
-}
+    "1mo": "1month"}
 
 # Extended symbol map — add more as needed
 _TD_SYMBOL_MAP = {
@@ -45,10 +44,9 @@ _TD_SYMBOL_MAP = {
     "CADJPY": "CAD/JPY", "NZDJPY": "NZD/JPY",
     "USDCNH": "USD/CNH", "AUDCAD": "AUD/CAD",
     "GBPAUD": "GBP/AUD", "EURAUD": "EUR/AUD",
-    "XAUUSD": "XAU/USD", "XAGUSD": "XAG/USD",
+    "XAUUSD": "XAU/USD": "XAG/USD",
     "BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD",
-    "SOLUSD": "SOL/USD", "ADAUSD": "ADA/USD",
-}
+    "SOLUSD": "SOL/USD", "ADAUSD": "ADA/USD"}
 
 
 class TDRateLimitError(Exception):
@@ -167,8 +165,7 @@ class TwelveDataClient:
             "outputsize": limit,
             "apikey":     self.api_key,
             "format":     "JSON",
-            "order":      "ASC",
-        }
+            "order":      "ASC"}
 
         url = f"{self.base_url}/time_series"
 
@@ -240,8 +237,7 @@ class TwelveDataClient:
                     "high":      h,
                     "low":       l,
                     "close":     c,
-                    "volume":    volume,
-                })
+                    "volume":    volume})
             except (ValueError, KeyError, TypeError):
                 skipped += 1
                 continue
@@ -259,8 +255,7 @@ class TwelveDataClient:
             "%Y-%m-%d",
             "%Y-%m-%dT%H:%M:%S",
             "%Y-%m-%dT%H:%M:%SZ",
-            "%Y-%m-%dT%H:%M:%S%z",
-        ]
+            "%Y-%m-%dT%H:%M:%S%z"]
 
         for fmt in formats:
             try:
@@ -326,8 +321,7 @@ class TwelveDataClient:
                 "ask":       float(data.get("ask", data.get("close", 0))),
                 "close":     float(data.get("close", 0)),
                 "volume":    data.get("volume"),
-                "timestamp": datetime.now(timezone.utc),
-            }
+                "timestamp": datetime.now(timezone.utc)}
         except Exception as e:
             logger.warning(f"Twelve Data quote failed for {pair}: {e}")
             return None
@@ -370,8 +364,7 @@ class TwelveDataClient:
         return {
             "daily_limit": 800,
             "per_minute_limit": 8,
-            "note": "Track usage locally or check Twelve Data dashboard",
-        }
+            "note": "Track usage locally or check Twelve Data dashboard"}
 
 
 # Module-level singleton for dependency injection

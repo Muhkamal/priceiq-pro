@@ -51,8 +51,7 @@ async def trading_loop():
     # Forex Majors & Crosses
     "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD", "EURJPY", "GBPJPY",
     # Commodities
-    "XAUUSD", "XAGUSD",
-    # Crypto (24/7 Markets)
+    "XAUUSD", # Crypto (24/7 Markets)
     "BTCUSD", "ETHUSD", "SOLUSD"]
 
     while True:

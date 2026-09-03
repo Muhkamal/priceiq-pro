@@ -140,13 +140,13 @@ class RegimeConditionalLearner:
         }
         
         # ═══ NEW: Pair-specific overrides for high-volatility assets ═══
-        if pair and pair.upper() in ("BTCUSD", "XAUUSD", "ETHUSD", "XAGUSD"):
+        if pair and pair.upper() in ("BTCUSD", "XAUUSD", "ETHUSD"):
             if regime == "volatile":
                 weights["BreakoutAgent"] = max(weights.get("BreakoutAgent", 0.10), 3.50)
                 weights["TrendAgent"]    = max(weights.get("TrendAgent", 0.10), 3.00)
             elif regime == "trending":
                 weights["TrendAgent"] = max(weights.get("TrendAgent", 0.10), 3.50)
-            elif regime == "ranging" and pair.upper() in ("XAUUSD", "XAGUSD"):
+            elif regime == "ranging" and pair.upper() in ("XAUUSD"):
                 weights["MeanReversionAgent"] = max(weights.get("MeanReversionAgent", 0.10), 3.00)
                 
         return weights
@@ -165,7 +165,7 @@ class RegimeConditionalLearner:
             samples[agent] = round(scaled, 4)
             
         # ═══ NEW: Pair-specific overrides for high-volatility assets ═══
-        if pair and pair.upper() in ("BTCUSD", "XAUUSD", "ETHUSD", "XAGUSD"):
+        if pair and pair.upper() in ("BTCUSD", "XAUUSD", "ETHUSD"):
             if regime == "volatile":
                 # Boost Breakout and Trend agents for crypto/gold in volatile markets
                 samples["BreakoutAgent"] = max(samples.get("BreakoutAgent", 0.10), 3.50)
@@ -173,7 +173,7 @@ class RegimeConditionalLearner:
             elif regime == "trending":
                 # Boost Trend agent
                 samples["TrendAgent"] = max(samples.get("TrendAgent", 0.10), 3.50)
-            elif regime == "ranging" and pair.upper() in ("XAUUSD", "XAGUSD"):
+            elif regime == "ranging" and pair.upper() in ("XAUUSD"):
                 # Gold/Silver mean-reverts well in ranging markets
                 samples["MeanReversionAgent"] = max(samples.get("MeanReversionAgent", 0.10), 3.00)
                 
