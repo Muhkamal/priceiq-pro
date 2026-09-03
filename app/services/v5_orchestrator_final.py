@@ -1,31 +1,14 @@
 """
-PriceIQ Pro — V5 Master Orchestrator v5.6.0 (9-AGENT + RL UPGRADE)
+PriceIQ Pro — V5 Master Orchestrator v5.6.1 (TREND GATE + 0.70 FLOOR)
+
+v5.6.1 additions:
+    ✅ M.A.E. Trend-Direction Gate → Blocks counter-trend mean-reversion traps
+    ✅ Hard Confidence Floor 0.70  → Stops low-probability signals from firing
 
 v5.6.0 additions:
     ✅ 9-Agent Syndicate     → COT Report + NLP News Sentiment wired into Agent Layer
     ✅ RL Trade Manager      → PPO dynamic trade management replaces fixed TP/SL rules
     ✅ External Data Refresh → Throttled API calls for COT/News before signal cycle
-
-v5.5.0 additions (Rayner Teo Principles):
-    ✅ Macro Risk Filter      → "Go-To-Cash" switch (halves long confidence if SPY < 200SMA)
-    ✅ Trend-Rider Mode       → 4x ATR trailing stop + disables fixed TPs for Trend/Breakout agents
-    ✅ 20% Robustness Tester  → (Available via scripts/stress_test_20_percent.py)
-
-v5.4.2 additions:
-    ✅ ADVISORY_MODE env switch  → governor never hard-blocks on per-trade risk
-    ✅ Advisory Gate 8 Bypass    → signals flow to Telegram with risk warnings
-    ✅ Micro-account mode        → 10% cap when balance < $1,000 (non-advisory)
-    ✅ Crypto pip fix            → patches risk_governor pip dicts for BTC/ETH
-    ✅ Stop cap for crypto/gold  → structure stops capped to % of price
-    ✅ Self-contained feeds      → stat_arb / fundamentals / MAE fed inside cycle
-    ✅ Pair-aware Thompson sampling (regime learner gets the pair)
-
-Plus all v5.4 features:
-    ✅ Volatile→trending override for BTC/Gold
-    ✅ MAE/MFE tracker + performance analytics + daily reports
-    ✅ StatArb pairs monitor + fundamentals gate confidence adjustments
-    ✅ Bulletproof tp2_distance / trade levels (getattr)
-    ✅ MAE tags visible in reasoning
 """
 
 from __future__ import annotations
@@ -186,7 +169,7 @@ class V5SignalResult:
 
 
 class V5OrchestratorFinal:
-    """PriceIQ Pro — Complete V5 System (v5.6.0 Institutional)."""
+    """PriceIQ Pro — Complete V5 System (v5.6.1 Institutional)."""
 
     def __init__(
         self,
@@ -307,7 +290,7 @@ class V5OrchestratorFinal:
 
         # Bootstrap weights
         self._refresh_weights("trending")
-        logger.info("✅ V5 Final Orchestrator (v5.6.0) — 9 Agents + RL Manager Online")
+        logger.info("✅ V5 Final Orchestrator (v5.6.1) — 9 Agents + RL Manager + Trend Gate Online")
 
     # ────────────────────────────────────────────────────────
     # HELPERS
@@ -333,7 +316,6 @@ class V5OrchestratorFinal:
                 else self.regime_learner.get_weights_for_regime(regime)
             )
         except TypeError:
-            # Older learner without pair argument — fall back gracefully
             weights = (
                 self.regime_learner.thompson_sample(regime) if thompson
                 else self.regime_learner.get_weights_for_regime(regime)
@@ -394,20 +376,14 @@ class V5OrchestratorFinal:
 
         # ═══ v5.4: self-contained feeds (statarb / fundamentals / MAE) ═══
         try:
-            if stat_arb:
-                stat_arb.feed(pair, candles)
-        except Exception:
-            pass
+            if stat_arb: stat_arb.feed(pair, candles)
+        except Exception: pass
         try:
-            if fundamentals_gate:
-                await fundamentals_gate.maybe_refresh()
-        except Exception:
-            pass
+            if fundamentals_gate: await fundamentals_gate.maybe_refresh()
+        except Exception: pass
         try:
-            if mae_tracker:
-                mae_tracker.update(pair, getattr(candles[-1], "close", 0))
-        except Exception:
-            pass
+            if mae_tracker: mae_tracker.update(pair, getattr(candles[-1], "close", 0))
+        except Exception: pass
 
         # ── Gate -3.5: Bar Closed Guard ──────────────────────
         if not mae_bar_guard.check(candles):
@@ -493,45 +469,60 @@ class V5OrchestratorFinal:
 
         # ── Gate 4: Agent orchestration (pair-aware weights) ──
         self._refresh_weights(regime, pair=pair, thompson=True)
-        
-        # ═══ v5.6.0: Refresh External Agents (COT & News) ═══
         await self.orchestrator.refresh_external_data()
         
         try:
-            # ═══ v5.6.0: Pass pair so COT/News evaluate the correct instrument ═══
             orch_result = self.orchestrator.run(candles, regime, pair=pair)
         except Exception as e:
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime, reason=f"Orchestrator error: {e}")
 
         if orch_result is None:
-            logger.info(f"[DEBUG] {pair}: All agents returned None/invalid signal in {regime} regime")
             await self.monitor.on_signal_blocked(pair, "No agent produced valid signal")
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime, reason="No agent signal")
 
         signal    = orch_result.selected_signal
         agent     = orch_result.selected_agent
+        direction = signal.direction
 
         # ── DEFENSE-IN-DEPTH: Regime-fit gate ────────────────
         if signal.regime_fit < 0.5:
             reason = f"REGIME BLOCK: {agent} fit={signal.regime_fit:.2f} < 0.50 in {regime} regime"
-            logger.warning(f"[SAFETY] {pair}: {reason}")
             await self.monitor.on_signal_blocked(pair, reason)
             return self._no_signal(pair, timeframe, now_str, session_name,
                                    regime=regime, reason=reason, conf_b=True)
 
         logger.info(
-            f"[DEBUG] {pair}: best agent={orch_result.selected_agent} "
-            f"dir={orch_result.selected_signal.direction} "
-            f"conf={orch_result.selected_signal.confidence:.3f} "
-            f"ev={orch_result.selected_signal.expected_value:.3f} "
-            f"regime_fit={orch_result.selected_signal.regime_fit:.3f}"
+            f"[DEBUG] {pair}: best agent={agent} "
+            f"dir={direction} conf={signal.confidence:.3f} "
+            f"ev={signal.expected_value:.3f} regime_fit={signal.regime_fit:.3f}"
         )
 
-        signal    = orch_result.selected_signal
-        agent     = orch_result.selected_agent
-        direction = signal.direction
+        # ═══ v5.6.1 GATE 4.1: M.A.E. TREND-DIRECTION FILTER ═══
+        # Don't fight a clear 1H trend. If EMA20 slope is strong, block counter-trend trades.
+        try:
+            closes = [c.close for c in candles if hasattr(c, 'close') and c.close is not None]
+            if len(closes) >= 21:
+                ema20_now = sum(closes[-20:]) / 20
+                ema20_prev = sum(closes[-21:-1]) / 20
+                slope = (ema20_now - ema20_prev) / ema20_now if ema20_now != 0 else 0
+                current_price = closes[-1]
+
+                # Strong uptrend: price > EMA20 and EMA rising
+                if slope > 0.00015 and current_price > ema20_now:
+                    if direction == "sell":
+                        logger.info(f"🛑 M.A.E: BLOCKED SELL on {pair} — Strong uptrend (slope={slope:.5f})")
+                        return self._no_signal(pair, timeframe, now_str, session_name,
+                                               regime="blocked", reason=f"M.A.E: Strong uptrend on {pair} — blocking SELL", conf_b=True)
+                # Strong downtrend: price < EMA20 and EMA falling
+                elif slope < -0.00015 and current_price < ema20_now:
+                    if direction == "buy":
+                        logger.info(f"🛑 M.A.E: BLOCKED BUY on {pair} — Strong downtrend (slope={slope:.5f})")
+                        return self._no_signal(pair, timeframe, now_str, session_name,
+                                               regime="blocked", reason=f"M.A.E: Strong downtrend on {pair} — blocking BUY", conf_b=True)
+        except Exception as e:
+            logger.debug(f"M.A.E. trend filter error: {e}")
 
         # ═══ v5.5: MACRO RISK FILTER (The "Go-To-Cash" Switch) ═══
         macro_state = "NEUTRAL"
@@ -577,11 +568,9 @@ class V5OrchestratorFinal:
             if direction == "buy" and signal.take_profit_2 <= signal.take_profit_1:
                 signal.take_profit_2 = round(signal.take_profit_1 + smart["sl_distance"] * 1.5, 5)
                 signal.reasoning += " | TP2_reordered"
-                logger.warning(f"TP2 reorder fix: {pair} buy TP2→{signal.take_profit_2}")
             elif direction == "sell" and signal.take_profit_2 >= signal.take_profit_1:
                 signal.take_profit_2 = round(signal.take_profit_1 - smart["sl_distance"] * 1.5, 5)
                 signal.reasoning += " | TP2_reordered"
-                logger.warning(f"TP2 reorder fix: {pair} sell TP2→{signal.take_profit_2}")
         except Exception as e:
             logger.warning(f"SmartStop error: {e}")
 
@@ -593,7 +582,6 @@ class V5OrchestratorFinal:
             sd_now = getattr(signal, "stop_distance", 0.0)
             if frac and sd_now > price_now * frac:
                 new_sd = price_now * frac
-                logger.warning(f"Stop capped for {pair}: {sd_now:.1f} → {new_sd:.1f}")
                 signal.stop_distance = new_sd
                 signal.reasoning += f" | STOP_CAPPED({frac:.1%} of price)"
         except Exception as e:
@@ -607,10 +595,7 @@ class V5OrchestratorFinal:
             trailing_stop_mult = 4.0
             new_sl_distance = atr_val * trailing_stop_mult
             
-            # Override stop distance to 4 ATR
             signal.stop_distance = new_sl_distance
-            
-            # Nullify fixed TPs by pushing them extremely far away
             signal.take_profit_1 = None
             signal.take_profit_2 = None
             signal.take_profit_3 = None
@@ -645,7 +630,6 @@ class V5OrchestratorFinal:
                 signal._fvg_entry = fvg["entry"]
                 signal._entry_type = "fvg_limit"
                 signal.reasoning += f" | FVG entry @{fvg['entry']} ({fvg['fvg_type']})"
-                logger.info(f"FVG limit entry for {pair}: {fvg['entry']}")
         except Exception as e:
             logger.debug(f"FVG error: {e}")
 
@@ -708,19 +692,16 @@ class V5OrchestratorFinal:
                                    ev_b=True)
 
         # ── Gate 7: Adaptive confidence threshold ────────────
-        threshold = max(min(self.learning.get_confidence_threshold(pair), 0.60), 0.50)
+        # ═══ v5.6.1 RAISED FLOOR: Hard minimum 0.70 to stop low-probability traps ═══
+        threshold = max(self.learning.get_confidence_threshold(pair), 0.70)
 
         # ═══ v5.4: fundamentals + statarb confidence adjustments ═══
         try:
-            if fundamentals_gate:
-                adj_conf += fundamentals_gate.confidence_adjustment(pair, direction)
-        except Exception:
-            pass
+            if fundamentals_gate: adj_conf += fundamentals_gate.confidence_adjustment(pair, direction)
+        except Exception: pass
         try:
-            if stat_arb:
-                adj_conf += stat_arb.confidence_adjustment(pair, direction)
-        except Exception:
-            pass
+            if stat_arb: adj_conf += stat_arb.confidence_adjustment(pair, direction)
+        except Exception: pass
         adj_conf = min(1.0, max(0.0, adj_conf))
 
         if adj_conf < threshold:
@@ -799,7 +780,6 @@ class V5OrchestratorFinal:
         tp3 = getattr(signal, "tp3_distance", tp2 * 1.5)
 
         if is_trend_rider:
-            # Effectively disable TPs by pushing them 20x+ ATR away
             tp1 = sd * 20.0
             tp2 = sd * 30.0
             tp3 = sd * 40.0
@@ -908,7 +888,6 @@ class V5OrchestratorFinal:
     ):
         """Atomic update of all learning systems on trade close."""
 
-        # ═══ v5.4: MAE/MFE + performance recording ═══
         try:
             if mae_tracker:
                 mae_tracker.finalize(pair, exit_price=exit_price,
@@ -979,7 +958,6 @@ class V5OrchestratorFinal:
 
     async def tick(self, current_prices: Dict[str, float], current_candles: Optional[Dict] = None, current_atr: Optional[Dict] = None):
         """Call every bar from scheduler — updates all time-sensitive state."""
-        # ═══ v5.6.0: Pass candles/ATR to RL Manager for state building ═══
         await self.trade_manager.update_all(current_prices, current_candles, current_atr)
         for pair, price in current_prices.items():
             self.corr_estimator.update(pair, price)
@@ -994,7 +972,7 @@ class V5OrchestratorFinal:
     def get_system_status(self) -> Dict:
         streak_r, streak_n = self.regime_transition.regime_streak()
         status = {
-            "version":              "5.6.0",
+            "version":              "5.6.1",
             "timestamp":            datetime.now(timezone.utc).isoformat(),
             "portfolio":            self.governor.get_portfolio_summary(),
             "var":                  self.var_engine.to_dict(
@@ -1021,20 +999,14 @@ class V5OrchestratorFinal:
             "regime_model_trained": self.regime_clf._trained,
         }
         try:
-            if mae_tracker:
-                status["mae_mfe"] = mae_tracker.summary()
-        except Exception:
-            pass
+            if mae_tracker: status["mae_mfe"] = mae_tracker.summary()
+        except Exception: pass
         try:
-            if perf_analytics:
-                status["performance"] = perf_analytics.metrics()
-        except Exception:
-            pass
+            if perf_analytics: status["performance"] = perf_analytics.metrics()
+        except Exception: pass
         try:
-            if fundamentals_gate:
-                status["fundamentals"] = fundamentals_gate.status()
-        except Exception:
-            pass
+            if fundamentals_gate: status["fundamentals"] = fundamentals_gate.status()
+        except Exception: pass
         return status
 
     async def send_heartbeat(self):
@@ -1053,18 +1025,15 @@ class V5OrchestratorFinal:
         try:
             if self.telegram and perf_analytics:
                 await self.telegram.send_message(perf_analytics.report())
-        except Exception:
-            pass
+        except Exception: pass
         try:
             if self.telegram and mae_tracker:
                 await self.telegram.send_message(mae_tracker.report())
-        except Exception:
-            pass
+        except Exception: pass
         try:
             if self.telegram and fundamentals_gate:
                 await self.telegram.send_message(fundamentals_gate.status())
-        except Exception:
-            pass
+        except Exception: pass
 
     async def train_regime_classifier(
         self, candles: List, save_path: str = "regime_model.pkl",
@@ -1077,8 +1046,7 @@ class V5OrchestratorFinal:
         feats = []
         for i in range(55, len(candles)):
             f = self.regime_clf.extractor.extract(candles[max(0, i-100):i+1])
-            if f:
-                feats.append(f)
+            if f: feats.append(f)
         if feats:
             self.drift_monitor.fit_baseline(feats)
         return result

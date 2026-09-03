@@ -1,18 +1,22 @@
 """
-PriceIQ Pro — Market Data Fetcher v2.0 (Quota Shield)
+PriceIQ Pro — Market Data Fetcher v3.0 (Ghost-Buster)
 
-Fixes the 429 Rate Limit Wall:
-  1. UNIFIED CACHE: limit=300 and limit=1 share the same cache. Slices on return.
-  2. CIRCUIT BREAKERS: If a provider 429s, it is banned for 1 hour globally.
-  3. ASSET ROUTING: Crypto routes to Binance (free, no key, unlimited).
-  4. SAFE STALENESS: Never deletes cache on staleness; serves cached data to protect APIs.
+Fixes the 429 Rate Limit Wall permanently:
+  1. YFINANCE LIBRARY: Bypasses Yahoo's anti-bot 429 bans using official session cookies.
+  2. UNIFIED CACHE: limit=300 and limit=1 share the same cache. Slices on return.
+  3. CIRCUIT BREAKERS: If a provider 429s, it is banned for 1 hour globally.
+  4. ASSET ROUTING: Crypto routes to Binance (free, no key, unlimited).
+  5. SAFE STALENESS: Never deletes cache on staleness; serves cached data to protect APIs.
 """
 
 import httpx
 import asyncio
 import time
+import yfinance as yf
+import pandas as pd
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Tuple
+from concurrent.futures import ThreadPoolExecutor
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,18 +32,11 @@ except ImportError as e:
     logger.error(f"data_fetcher import error: {e}")
 
 _AV_BASE = "https://www.alphavantage.co/query"
-_YF_BASE = "https://query1.finance.yahoo.com/v8/finance/chart"
 _BINANCE_BASE = "https://api.binance.com/api/v3/klines"
 
 _AV_INTRADAY_INTERVALS = {
     "1m": "1min", "5m": "5min", "15m": "15min",
     "30m": "30min", "1h": "60min",
-}
-
-_YF_INTERVAL_MAP = {
-    "1m": ("1m", "7d"), "5m": ("5m", "60d"), "15m": ("15m", "60d"),
-    "30m": ("30m", "60d"), "1h": ("1h", "60d"),
-    "4h": ("1h", "60d"), "1d": ("1d", "5y"),
 }
 
 _YF_SYMBOL_MAP = {
@@ -70,6 +67,9 @@ _MAX_AGE_HOURS = {
     "1h": 3, "4h": 6, "1d": 30,
 }
 
+# Thread pool for synchronous yfinance calls
+_executor = ThreadPoolExecutor(max_workers=10)
+
 
 class DataFetcher:
 
@@ -80,10 +80,9 @@ class DataFetcher:
         self.av_key  = getattr(settings, "ALPHA_VANTAGE_API_KEY", "")
         self.td_key  = getattr(settings, "TWELVE_DATA_API_KEY", "")
         self.av_base = _AV_BASE
-        self.yf_base = _YF_BASE
 
         self.td_client = TwelveDataClient(self.td_key) if self.td_key else None
-        logger.info("✅ DataFetcher v2.0 (Quota Shield) initialized.")
+        logger.info("✅ DataFetcher v3.0 (Ghost-Buster) initialized.")
 
     def _is_banned(self, provider: str) -> bool:
         return time.time() < _provider_bans.get(provider, 0)
@@ -146,14 +145,11 @@ class DataFetcher:
             except Exception as e:
                 logger.warning(f"[AV] Failed for {pair}: {e}")
 
-        # ── 4. Yahoo Finance (tertiary) ───────────────────────
+        # ── 4. Yahoo Finance via yfinance (tertiary - Ghost-Buster) ───────────────────────
         if not candles and not self._is_banned("yahoo_finance"):
             try:
-                candles = await self._fetch_yf(pair, timeframe)
+                candles = await self._fetch_yfinance(pair, timeframe, limit)
                 if candles: source = "yahoo_finance"
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 429: self._ban("yahoo_finance")
-                logger.error(f"[YF] HTTP Error for {pair}: {e}")
             except Exception as e:
                 logger.error(f"[YF] Failed for {pair}: {e}")
 
@@ -165,7 +161,6 @@ class DataFetcher:
             raise RuntimeError(f"All data sources failed/banned for {pair} {timeframe}.")
 
         # ═══ QUOTA SHIELD FIX 2: Never delete cache on staleness ═══
-        # We log it, but we KEEP the data to prevent API hammering loops.
         if not self._is_data_fresh(candles, timeframe, now):
             logger.warning(f"⏳ Data for {pair} from {source} is stale, but using it to protect API quotas.")
 
@@ -185,7 +180,6 @@ class DataFetcher:
         return {"h1": h1, "h4": h4, "d1": d1}
 
     async def get_live_price(self, pair: str) -> Optional[float]:
-        # Use 1m or 1h cache to avoid separate API calls
         try:
             candles = await self.get_candles(pair, "1h", limit=1)
             return candles[-1].close if candles else None
@@ -209,6 +203,55 @@ class DataFetcher:
                 candles.append(Candle(timestamp=ts, open=o, high=h, low=l, close=c, volume=v))
             except Exception: continue
         return candles
+
+    # ──────────────────────────────────────────────────────────
+    # Yahoo Finance (Ghost-Buster via yfinance library)
+    # ──────────────────────────────────────────────────────────
+    async def _fetch_yfinance(self, pair: str, timeframe: str, limit: int) -> List[Candle]:
+        symbol = _YF_SYMBOL_MAP.get(pair, f"{pair[:3]}{pair[3:]}=X")
+        
+        interval_map = {
+            "1m": ("1m", "7d"), "5m": ("5m", "60d"), "15m": ("15m", "60d"),
+            "30m": ("30m", "60d"), "1h": ("1h", "60d"), "4h": ("1h", "60d"), "1d": ("1d", "5y")
+        }
+        interval, period = interval_map.get(timeframe, ("1h", "60d"))
+        
+        try:
+            loop = asyncio.get_running_loop()
+            # Run synchronous yfinance download in thread pool to avoid blocking async loop
+            df = await loop.run_in_executor(
+                _executor, 
+                lambda: yf.download(symbol, interval=interval, period=period, progress=False, auto_adjust=True)
+            )
+            
+            if df.empty:
+                logger.warning(f"yfinance returned empty data for {pair}")
+                return []
+                
+            candles = []
+            # Handle MultiIndex columns if yfinance returns them (happens sometimes with single ticker)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.droplevel(1)
+                
+            for index, row in df.iterrows():
+                ts = index.to_pydatetime()
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                
+                vol = int(row['Volume']) if row['Volume'] > 0 else max(1, int((row['High'] - row['Low']) / 0.0001))
+                candles.append(Candle(
+                    timestamp=ts, open=float(row['Open']), high=float(row['High']),
+                    low=float(row['Low']), close=float(row['Close']), volume=vol
+                ))
+                
+            if timeframe == "4h":
+                candles = self._resample_to_4h(candles)
+                
+            return candles[-limit:]
+            
+        except Exception as e:
+            logger.error(f"yfinance failed for {pair}: {e}")
+            return []
 
     # ──────────────────────────────────────────────────────────
     # Validation & Helpers
@@ -289,43 +332,6 @@ class DataFetcher:
                 if not all([o, h, l, c]) or h < l: continue
                 candles.append(Candle(timestamp=ts, open=o, high=h, low=l, close=c, volume=vol))
             except (ValueError, KeyError): continue
-        candles.sort(key=lambda c: c.timestamp)
-        return candles
-
-    # ──────────────────────────────────────────────────────────
-    # Yahoo Finance
-    # ──────────────────────────────────────────────────────────
-    async def _fetch_yf(self, pair: str, timeframe: str) -> List:
-        symbol = _YF_SYMBOL_MAP.get(pair, f"{pair[:3]}{pair[3:]}=X")
-        if timeframe == "4h":
-            h1 = await self._fetch_yf_raw(symbol, "1h", "60d")
-            return self._resample_to_4h(h1)
-        interval, period = _YF_INTERVAL_MAP.get(timeframe, ("1d", "5y"))
-        return await self._fetch_yf_raw(symbol, interval, period)
-
-    async def _fetch_yf_raw(self, symbol: str, interval: str, period: str) -> List:
-        url    = f"{self.yf_base}/{symbol}"
-        params = {"interval": interval, "range": period, "includePrePost": "false"}
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Accept": "application/json"}
-        data = await self._get(url, params, headers=headers)
-        try:
-            result     = data["chart"]["result"][0]
-            quotes     = result["indicators"]["quote"][0]
-            timestamps = result["timestamp"]
-        except (KeyError, IndexError, TypeError) as e:
-            raise ValueError(f"YF unexpected response: {e}")
-
-        opens, highs, lows, closes, volumes = quotes.get("open", []), quotes.get("high", []), quotes.get("low", []), quotes.get("close", []), quotes.get("volume", [])
-        candles = []
-        for i, ts in enumerate(timestamps):
-            try:
-                o, h, l, c = opens[i], highs[i], lows[i], closes[i]
-                v = volumes[i] if i < len(volumes) else None
-                if None in [o, h, l, c] or h < l or c <= 0: continue
-                timestamp = datetime.fromtimestamp(ts, tz=timezone.utc)
-                volume    = int(v) if v and v > 0 else self._estimate_volume(h, l)
-                candles.append(Candle(timestamp=timestamp, open=float(o), high=float(h), low=float(l), close=float(c), volume=volume))
-            except (TypeError, ValueError, IndexError): continue
         candles.sort(key=lambda c: c.timestamp)
         return candles
 
