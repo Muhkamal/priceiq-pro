@@ -44,7 +44,7 @@ _TD_SYMBOL_MAP = {
     "CADJPY": "CAD/JPY", "NZDJPY": "NZD/JPY",
     "USDCNH": "USD/CNH", "AUDCAD": "AUD/CAD",
     "GBPAUD": "GBP/AUD", "EURAUD": "EUR/AUD",
-    "XAUUSD": "XAU/USD": "XAG/USD",
+    "XAUUSD": "XAU/USD",
     "BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD",
     "SOLUSD": "SOL/USD", "ADAUSD": "ADA/USD"}
 
