@@ -51,17 +51,19 @@ FRIDAY_SIZE_CAP     = 0.50   # reduce to 50% on Friday close
 
 # -- Swap costs per lot per night (approximate, check your broker) --
 # Positive = credit, Negative = charge
+# -- Swap costs per lot per night (approximate, check your broker) --
+# Positive = credit, Negative = charge
 SWAP_LONG:  Dict[str, float] = {
     "EURUSD": -0.72, "GBPUSD": -1.85, "USDJPY": +1.26,
     "USDCHF": +0.46, "USDCAD": -1.02, "AUDUSD": -1.12,
-    "NZDUSD": -0.98, "XAUUSD": -3.50
+    "NZDUSD": -0.98, "XAUUSD": -3.50,
     "EURJPY": -0.85, "GBPJPY": -2.10}
+
 SWAP_SHORT: Dict[str, float] = {
     "EURUSD": -1.10, "GBPUSD": -2.20, "USDJPY": -0.45,
     "USDCHF": -1.12, "USDCAD": -0.38, "AUDUSD": -0.86,
-    "NZDUSD": -0.72, "XAUUSD": -1.80: -0.95,
+    "NZDUSD": -0.72, "XAUUSD": -1.80,
     "EURJPY": -1.20, "GBPJPY": -1.85}
-
 # -- Major market holidays (UTC dates, YYYY-MM-DD) --------
 MARKET_HOLIDAYS_2025 = {
     "2025-01-01", "2025-04-18", "2025-04-21",

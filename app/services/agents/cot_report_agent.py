@@ -83,9 +83,7 @@ CFTC_CODES: Dict[str, str] = {
     "USDCHF": "092741",   # Swiss Franc (CME) — inverted
     "AUDUSD": "232741",   # Australian Dollar (CME)
     "USDCAD": "090741",   # Canadian Dollar (CME) — inverted
-    : "084691",   # Silver (COMEX)
 }
-
 # Pairs where futures are INVERTED vs spot price
 # (USDJPY spot up = JPY futures short = invert COT signal)
 INVERTED_PAIRS = {"USDJPY", "USDCHF", "USDCAD"}
