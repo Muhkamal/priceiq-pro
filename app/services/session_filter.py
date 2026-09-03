@@ -54,7 +54,7 @@ class SessionFilter:
         "newyork":  {"start": 12, "end": 21, "name": "New York", "quality": 1.0}
     }
 
-    # Best sessions for each pair
+    # Best sessions for each pair (GHOST COLON REMOVED FROM XAUUSD)
     PAIR_SESSIONS = {
         "EURUSD":   ["london", "newyork"],
         "GBPUSD":   ["london", "newyork"],
@@ -69,7 +69,8 @@ class SessionFilter:
         "EURCHF":   ["london"],
         "AUDJPY":   ["tokyo", "sydney"],
         "CADJPY":   ["tokyo", "newyork"],
-        "XAUUSD":   ["london", "newyork"]:   ["london", "newyork"]}
+        "XAUUSD":   ["london", "newyork"]
+    }
 
     # Quality boost for session overlaps
     OVERLAP_BOOST = {

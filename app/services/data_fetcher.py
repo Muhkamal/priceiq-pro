@@ -42,7 +42,7 @@ _YF_SYMBOL_MAP = {
     "EURUSD": "EURUSD=X", "GBPUSD": "GBPUSD=X", "USDJPY": "USDJPY=X", "USDCHF": "USDCHF=X",
     "AUDUSD": "AUDUSD=X", "NZDUSD": "NZDUSD=X", "USDCAD": "USDCAD=X", "EURGBP": "EURGBP=X",
     "EURJPY": "EURJPY=X", "GBPJPY": "GBPJPY=X",
-    "XAUUSD": "GC=F"}
+    "XAUUSD": "GC=F", "XAGUSD": "SI=F"}
 
 # ═══ QUOTA SHIELD: Binance Routing (Free, No Key) ═══
 _BINANCE_SYMBOL_MAP = {
@@ -67,6 +67,8 @@ _MAX_AGE_HOURS = {
 # Thread pool for synchronous yfinance calls
 _executor = ThreadPoolExecutor(max_workers=10)
 
+class RateLimitError(Exception):
+    pass
 
 class DataFetcher:
 
@@ -104,7 +106,6 @@ class DataFetcher:
             cached, cached_at = _candle_cache[cache_key]
             age_seconds = (now - cached_at).total_seconds()
             if age_seconds < ttl and cached:
-                # Serve from cache, slice to requested limit
                 return cached[-limit:]
 
         candles = []
@@ -142,7 +143,7 @@ class DataFetcher:
             except Exception as e:
                 logger.warning(f"[AV] Failed for {pair}: {e}")
 
-        # ── 4. Yahoo Finance via yfinance (tertiary - Ghost-Buster) ───────────────────────
+        # ── 4. Yahoo Finance via yfinance (tertiary - Ghost-Buster) ──
         if not candles and not self._is_banned("yahoo_finance"):
             try:
                 candles = await self._fetch_yfinance(pair, timeframe, limit)
@@ -151,19 +152,16 @@ class DataFetcher:
                 logger.error(f"[YF] Failed for {pair}: {e}")
 
         if not candles:
-            # If all APIs are banned/failed, check if we have ANY older cached data to serve as fallback
             if cache_key in _candle_cache:
                 logger.warning(f"⚠️ All APIs failed/banned for {pair}. Serving stale cache.")
                 return _candle_cache[cache_key][0][-limit:]
             raise RuntimeError(f"All data sources failed/banned for {pair} {timeframe}.")
 
-        # ═══ QUOTA SHIELD FIX 2: Never delete cache on staleness ═══
         if not self._is_data_fresh(candles, timeframe, now):
             logger.warning(f"⏳ Data for {pair} from {source} is stale, but using it to protect API quotas.")
 
         self._validate_price(candles[-1], pair, source)
 
-        # Memory guard
         candles = candles[-max(limit * 4, 1200):]
         _candle_cache[cache_key] = (candles, now)
         return candles[-limit:]
@@ -215,7 +213,7 @@ class DataFetcher:
         
         try:
             loop = asyncio.get_running_loop()
-            # Run synchronous yfinance download in thread pool to avoid blocking async loop
+            # Run synchronous yfinance.download in thread pool to avoid blocking async loop
             df = await loop.run_in_executor(
                 _executor, 
                 lambda: yf.download(symbol, interval=interval, period=period, progress=False, auto_adjust=True)
@@ -226,7 +224,6 @@ class DataFetcher:
                 return []
                 
             candles = []
-            # Handle MultiIndex columns if yfinance returns them (happens sometimes with single ticker)
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.droplevel(1)
                 
@@ -369,8 +366,5 @@ class DataFetcher:
                 "latest_price": latest.close if latest else None}
         status["banned_providers"] = {k: max(0, round(v - time.time())) for k, v in _provider_bans.items() if v > time.time()}
         return status
-
-class RateLimitError(Exception):
-    pass
 
 data_fetcher = DataFetcher()

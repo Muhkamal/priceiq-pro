@@ -30,9 +30,9 @@ PIP_SIZE: Dict[str, float] = {
     "XAUUSD": 0.1,
     "USDJPY": 0.01, "EURJPY": 0.01, "GBPJPY": 0.01,
     "AUDJPY": 0.01, "CADJPY": 0.01, "NZDJPY": 0.01, "CHFJPY": 0.01,
-    # ═══ NEW: Crypto pip sizes ($1.00 move = 1 pip) ═══
     "BTCUSD": 1.0,
-    "ETHUSD": 1.0}
+    "ETHUSD": 1.0
+}
 
 MAX_LOTS = 10.0
 MIN_LOTS = 0.01
