@@ -99,7 +99,7 @@ except Exception:
 
 WATCHLIST = [
     "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD", "EURJPY", "GBPJPY",
-    "XAUUSD", "XAGUSD", "BTCUSD", "ETHUSD", "SOLUSD"]
+    "XAUUSD", "BTCUSD", "ETHUSD", "SOLUSD"]
 
 
 @dataclass
