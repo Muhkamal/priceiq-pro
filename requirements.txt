@@ -27,3 +27,10 @@ httpx==0.27.2
 pip==24.0
 yfinance
 pandas
+twilio
+smartmoneyconcepts
+matplotlib
+pyyaml
+smartmoneyconcepts
+matplotlib
+pyyaml

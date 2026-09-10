@@ -1,0 +1,26 @@
+markets: [XAUUSD, EURUSD]
+context_tf: M15
+trigger_tf: M5
+conditions:
+  kill_zones: [[7, 10], [12, 15]]
+  require_displacement: false
+  require_unmitigated_zone: false
+  news_blackout_min: 0
+entry_modules:
+  - choch_no_idm
+  - scm
+invalidation:
+  stop_buffer_pts: 2
+  time_stop_bars: 12
+partials:
+  - at_r: 4.0
+    close_pct: 20
+  - at_r: 10.0
+    close_pct: 50
+risk:
+  pct_per_trade: 0.5
+  max_correlated_usd: 2
+  daily_loss_limit_pct: 2.0
+params:
+  swing_length: 10
+  kill_zone_buffer_min: 0
