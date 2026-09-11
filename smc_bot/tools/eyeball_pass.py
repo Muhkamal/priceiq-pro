@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-import smc
+from smartmoneyconcepts import smc
 
 def load_csv(path):
     df = pd.read_csv(path, index_col=0, parse_dates=True)

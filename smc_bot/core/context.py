@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import pandas as pd
-import smc
+from smartmoneyconcepts import smc
 
 @dataclass
 class Context:
