@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 from typing import Optional
+from ..core.pairs import get_twelvedata_symbol
 import httpx
 import pandas as pd
 
@@ -15,7 +16,7 @@ async def fetch_m5(symbol: str, limit: int = 1000) -> Optional[pd.DataFrame]:
     """Fetch CLOSED M5 candles from Twelve Data."""
     try:
         params = {
-            "symbol": symbol,
+            "symbol": get_twelvedata_symbol(symbol),
             "interval": "5min",
             "outputsize": limit,
             "timezone": "UTC",

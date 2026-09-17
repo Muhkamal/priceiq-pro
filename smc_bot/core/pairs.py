@@ -40,3 +40,17 @@ def get_spread(pair: str) -> Optional[float]:
 def buffer_price(pair: str, pts: float) -> float:
     spec = get_spec(pair)
     return pts * spec.pip_size if spec else 0.0
+
+# Twelve Data uses slashes for forex pairs
+TWELVEDATA_SYMBOLS = {
+    "EURUSD": "EUR/USD",
+    "GBPUSD": "GBP/USD",
+    "AUDUSD": "AUD/USD",
+    "NZDUSD": "NZD/USD",
+    "USDCHF": "USD/CHF",
+    "USDJPY": "USD/JPY",
+    "XAUUSD": "XAU/USD",
+}
+
+def get_twelvedata_symbol(pair: str) -> str:
+    return TWELVEDATA_SYMBOLS.get(pair, pair)

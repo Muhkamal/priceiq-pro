@@ -69,7 +69,8 @@ async def fetch_deriv_m5(symbol: str, limit: int = 1000, granularity: int = 300)
             df[c] = df[c].astype(float)
         now = pd.Timestamp.now(tz="UTC")
         df = df[df.index + pd.Timedelta(seconds=granularity) <= now]
-        return df[["open", "high", "low", "close"]] if not df.empty else None
+        df["volume"] = 1000
+        return df[["open", "high", "low", "close", "volume"]] if not df.empty else None
     except Exception as e:
         logger.error(f"Deriv fetch failed {symbol}: {e}")
         return None
