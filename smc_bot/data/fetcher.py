@@ -40,6 +40,7 @@ async def fetch_m5(pair: str, limit: int = 1000):
         for c in ("open", "high", "low", "close"):
             df[c] = df[c].astype(float)
         df = df[["open", "high", "low", "close"]]
+    df["volume"] = 1000
         now = pd.Timestamp.now(tz="UTC")
         df = df[df.index + pd.Timedelta(minutes=5) <= now]
         return df if not df.empty else None

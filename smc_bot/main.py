@@ -127,7 +127,8 @@ async def scan_pair(pair: str):
 
     logger.info(
         f"[{pair}] bias={ctx.bias} | zone={ctx.zone} | kill_zone={ctx.in_kill_zone} | "
-        f"eq={ctx.equilibrium:.5f} | price={df_m5['close'].iloc[-1]:.5f}"
+        f"eq={ctx.equilibrium:.5f} | DOL={ctx.dol:.5f} | PDH={ctx.pdh:.5f} PDL={ctx.pdl:.5f} | "
+        f"price={df_m5['close'].iloc[-1]:.5f}"
     )
 
     signal = None

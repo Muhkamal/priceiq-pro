@@ -1,4 +1,4 @@
-markets: [XAUUSD, EURUSD, V75, STEP]
+markets: [XAUUSD, EURUSD, V75]
 context_tf: M15
 trigger_tf: M5
 conditions:
