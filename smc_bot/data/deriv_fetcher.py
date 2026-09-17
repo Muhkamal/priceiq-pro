@@ -8,6 +8,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# binaryws.com accepts unauthenticated public ticks_history requests.
 WS_URL = "wss://ws.binaryws.com/websockets/v3?app_id=1089"
 
 class DerivWebSocket:
@@ -62,15 +63,23 @@ async def fetch_deriv_m5(symbol: str, limit: int = 1000, granularity: int = 300)
         if not candles:
             logger.warning(f"Deriv empty candles for {symbol}")
             return None
+        
         df = pd.DataFrame(candles)
         df["datetime"] = pd.to_datetime(df["epoch"], unit="s", utc=True)
         df = df.set_index("datetime").sort_index()
+        
         for c in ("open", "high", "low", "close"):
             df[c] = df[c].astype(float)
+        
+        # Inject dummy volume for SMC library compatibility
+        df["volume"] = 1000
+        
+        # Drop the forming (current) candle
         now = pd.Timestamp.now(tz="UTC")
         df = df[df.index + pd.Timedelta(seconds=granularity) <= now]
-        df["volume"] = 1000
+        
         return df[["open", "high", "low", "close", "volume"]] if not df.empty else None
+        
     except Exception as e:
         logger.error(f"Deriv fetch failed {symbol}: {e}")
         return None

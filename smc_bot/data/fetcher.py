@@ -1,5 +1,4 @@
 """Twelve Data M5 candle fetcher with dummy volume injection."""
-import asyncio
 import logging
 import os
 from typing import Optional
@@ -29,16 +28,27 @@ async def fetch_m5(symbol: str, limit: int = 1000) -> Optional[pd.DataFrame]:
             "outputsize": limit,
             "timezone": "UTC",
             "apikey": API_KEY,
-            "format": "CSV"
+            "format": "JSON"
         }
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(BASE_URL, params=params)
             r.raise_for_status()
         
-        # Parse CSV response
-        from io import StringIO
-        df = pd.read_csv(StringIO(r.text), index_col='datetime', parse_dates=True)
-        df = df.sort_index()
+        data = r.json()
+        
+        # Check for API error
+        if "status" in data and data["status"] == "error":
+            logger.error(f"TwelveData API error for {symbol}: {data.get('message', 'unknown')}")
+            return None
+        
+        if "values" not in data:
+            logger.warning(f"TwelveData no values for {symbol}")
+            return None
+        
+        # Parse JSON response
+        df = pd.DataFrame(data["values"])
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        df = df.set_index("datetime").sort_index()
         
         # Ensure UTC timezone
         if df.index.tz is None:
@@ -46,7 +56,7 @@ async def fetch_m5(symbol: str, limit: int = 1000) -> Optional[pd.DataFrame]:
         else:
             df.index = df.index.tz_convert("UTC")
         
-        # Select and rename columns
+        # Select and convert columns
         df = df[["open", "high", "low", "close"]]
         for c in df.columns:
             df[c] = df[c].astype(float)
