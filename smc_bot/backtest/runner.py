@@ -34,7 +34,7 @@ class BacktestEngine:
         prof = get_profile(pair)
         compute_poi = bool(self.config.conditions.require_unmitigated_zone)
         df_m15 = df_m5.resample("15min").agg(
-            {"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+            {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna()
         m15_idx = df_m15.index
         ctx_engine = ContextEngine(swing_length=self.config.params.swing_length,
                                    kill_zones_utc=self.config.conditions.kill_zones)

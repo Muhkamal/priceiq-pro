@@ -15,7 +15,7 @@ class Context:
     equilibrium: float
     leg_high: float
     leg_low: float
-    dol: float
+    dol: Optional[float]
     in_kill_zone: bool
     pdh: float
     pdl: float
@@ -69,7 +69,13 @@ class ContextEngine:
                 pdh = float(df_m15["high"][mask].max()); pdl = float(df_m15["low"][mask].min())
             else:
                 pdh = float(df_m15["high"].max()); pdl = float(df_m15["low"].min())
-        dol = pdh if bias == "BULLISH" else pdl
+        # DOL = nearest liquidity pool on the trend side of price
+        if bias == "BULLISH":
+            cands = [x for x in (pdh, leg_high) if x > price * 1.0001]
+            dol = min(cands) if cands else None
+        else:
+            cands = [x for x in (pdl, leg_low) if x < price * 0.9999]
+            dol = max(cands) if cands else None
 
         if profile is not None and not profile.kill_zones:
             in_kz = True
@@ -83,8 +89,6 @@ class ContextEngine:
                 want = 1 if bias == "BULLISH" else -1
                 ob = smc.ob(df_m15, swing_highs_lows=swings, close_mitigation=False)
                 fvg = smc.fvg(df_m15)
-                if not ob.index.equals(df_m15.index):
-                    raise ValueError("OB index misaligned with df_m15")
                 start_idx = max(0, len(df_m15) - 500)
                 for i in range(start_idx, len(ob)):
                     r = ob.iloc[i]

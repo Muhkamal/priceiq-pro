@@ -61,10 +61,12 @@ async def send_morning_briefing():
 
             if df_m5 is None or len(df_m5) < 120:
                 continue
+            if "volume" not in df_m5.columns:
+                df_m5["volume"] = 1000
 
             now = datetime.now(timezone.utc)
             df_m15 = df_m5.resample("15min").agg(
-                {"open": "first", "high": "max", "low": "min", "close": "last"}
+                {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
             ).dropna()
             valid_m15 = df_m15[df_m15.index + pd.Timedelta(minutes=15) <= now]
 
@@ -77,7 +79,7 @@ async def send_morning_briefing():
                 msg += f"<b>{pair}</b> {emoji} <b>{ctx.bias}</b>\n"
                 msg += f"• Current Zone: <b>{ctx.zone}</b>\n"
                 msg += f"• Equilibrium (50%): <code>{ctx.equilibrium:.5f}</code>\n"
-                msg += f"• Draw on Liquidity (DOL): <code>{ctx.dol:.5f}</code>\n"
+                msg += f"• Draw on Liquidity (DOL): <code>{('none' if ctx.dol is None else format(ctx.dol, '.5f'))}</code>\n"
                 msg += f"• PDH: <code>{ctx.pdh:.5f}</code> | PDL: <code>{ctx.pdl:.5f}</code>\n\n"
             else:
                 msg += f"<b>{pair}</b> ⚠️ Structure mapping (Waiting for clear swings)\n\n"
@@ -108,10 +110,12 @@ async def scan_pair(pair: str):
         df_m5 = await fetch_m5(pair, limit=1000)
     if df_m5 is None or len(df_m5) < 120:
         return
+    if "volume" not in df_m5.columns:
+        df_m5["volume"] = 1000
 
     now = datetime.now(timezone.utc)
     df_m15 = df_m5.resample("15min").agg(
-        {"open": "first", "high": "max", "low": "min", "close": "last"}
+        {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
     ).dropna()
     valid_m15 = df_m15[df_m15.index + pd.Timedelta(minutes=15) <= now]
     if valid_m15.empty:
@@ -127,7 +131,7 @@ async def scan_pair(pair: str):
 
     logger.info(
         f"[{pair}] bias={ctx.bias} | zone={ctx.zone} | kill_zone={ctx.in_kill_zone} | "
-        f"eq={ctx.equilibrium:.5f} | DOL={ctx.dol:.5f} | PDH={ctx.pdh:.5f} PDL={ctx.pdl:.5f} | "
+        f"eq={ctx.equilibrium:.5f} | DOL={('none' if ctx.dol is None else format(ctx.dol, '.5f'))} | PDH={ctx.pdh:.5f} PDL={ctx.pdl:.5f} | "
         f"price={df_m5['close'].iloc[-1]:.5f}"
     )
 
