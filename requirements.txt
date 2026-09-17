@@ -34,3 +34,4 @@ pyyaml
 smartmoneyconcepts
 matplotlib
 pyyaml
+websockets

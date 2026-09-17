@@ -14,6 +14,9 @@ PAIR_SPECS = {
     "USDCHF": PairSpec(0.0001, 10.9),
     "USDJPY": PairSpec(0.01, 9.0),
     "XAUUSD": PairSpec(0.01, 1.0),
+    # Synthetics: pip_size only used for SL buffer math (sizing is stake-based)
+    "V75":  PairSpec(0.01, 0.0),
+    "STEP": PairSpec(0.0001, 0.0),
 }
 
 SPREADS = {
@@ -24,6 +27,8 @@ SPREADS = {
     "USDCHF": 0.00015,
     "USDJPY": 0.015,
     "XAUUSD": 0.25,
+    "V75": 1.0,
+    "STEP": 0.0002,
 }
 
 def get_spec(pair: str) -> Optional[PairSpec]:

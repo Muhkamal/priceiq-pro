@@ -1,8 +1,15 @@
 from __future__ import annotations
-import asyncio, json, logging, os
+import asyncio, json, logging, os, re
 from datetime import datetime, timezone
 from typing import Dict, List, Set
 import httpx
+
+# Safely import Twilio (won't crash if not installed yet)
+try:
+    from twilio.rest import Client
+    TWILIO_AVAILABLE = True
+except ImportError:
+    TWILIO_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +17,12 @@ BOT_TOKEN     = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 ADMIN_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 CHANNEL_ID    = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 SUBS_FILE     = "subscribers.json"
+
+# SMS Gateway Configuration
+TWILIO_SID    = os.environ.get("TWILIO_SID", "")
+TWILIO_TOKEN  = os.environ.get("TWILIO_TOKEN", "")
+TWILIO_FROM   = os.environ.get("TWILIO_FROM", "")
+OWNER_PHONE   = os.environ.get("OWNER_PHONE", "")
 
 
 class SubscriberStore:
@@ -67,6 +80,15 @@ class TelegramSignalBot:
         self._signal_count = 0
         self._win_count    = 0
         self._loss_count   = 0
+        
+        # Initialize Twilio Client for offline SMS alerts
+        self.twilio_client = None
+        if TWILIO_AVAILABLE and TWILIO_SID and TWILIO_TOKEN:
+            try:
+                self.twilio_client = Client(TWILIO_SID, TWILIO_TOKEN)
+                logger.info("✅ Twilio SMS client initialized")
+            except Exception as e:
+                logger.warning(f"Twilio init failed: {e}")
 
     async def send(self, chat_id: str, text: str) -> bool:
         if not BOT_TOKEN:
@@ -93,6 +115,25 @@ class TelegramSignalBot:
         if not CHANNEL_ID:
             return False
         return await self.send(str(CHANNEL_ID), text)
+
+    async def send_sms_alert(self, text: str):
+        """Send an SMS alert to the owner's phone (works offline via cellular network)."""
+        if not self.twilio_client or not TWILIO_FROM or not OWNER_PHONE:
+            return
+        try:
+            # Strip HTML tags for SMS compatibility
+            clean_text = re.sub(r'<[^>]+>', '', text)
+            # Truncate to safe SMS length (Twilio handles concatenation up to ~1500 chars safely)
+            sms_body = clean_text[:1500] + "..." if len(clean_text) > 1500 else clean_text
+            
+            self.twilio_client.messages.create(
+                body=sms_body,
+                from_=TWILIO_FROM,
+                to=OWNER_PHONE
+            )
+            logger.info("📲 SMS alert sent to owner successfully")
+        except Exception as e:
+            logger.warning(f"SMS send failed: {e}")
 
     async def broadcast_signal(self, result) -> Dict:
         self._signal_count += 1
@@ -156,7 +197,14 @@ class TelegramSignalBot:
             f"⚠️ <i>If price moves >25% toward SL before you enter, SKIP this signal.</i>\n\n"
             f"📡 <i>@daethdevilbot — #{self._signal_count}</i>"
         )
-        return await self.broadcast(msg)
+        
+        # 1. Broadcast to Telegram
+        telegram_result = await self.broadcast(msg)
+        
+        # 2. Send SMS to Owner (Cellular network, works offline without data)
+        await self.send_sms_alert(msg)
+        
+        return telegram_result
 
     async def broadcast_outcome(self, pair: str, direction: str, outcome: str, pnl_r: float):
         emoji = "✅" if outcome in ("win", "tp1", "tp2") else "❌"
@@ -174,6 +222,8 @@ class TelegramSignalBot:
             f"📡 <i>@daethdevilbot</i>"
         )
         await self.broadcast(msg)
+        # Optional: Also SMS the outcome
+        await self.send_sms_alert(msg)
 
     async def send_expiry_notice(self, pair: str, signal_id: int, reason: str):
         msg = (

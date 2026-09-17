@@ -1,4 +1,6 @@
-"""Run from repo root: python -m smc_bot.backtest.runner data/XAUUSD_M5.csv --pair XAUUSD --db backtest_journal.db"""
+"""Event-driven M5 backtest.
+Run from repo root:
+  python3 -m smc_bot.backtest.runner data/V75_M5.csv --pair V75 --db bt.db [--start YYYY-MM-DD] [--end YYYY-MM-DD]"""
 import argparse
 import statistics
 import pandas as pd
@@ -7,12 +9,14 @@ from typing import Dict, List, Any
 from ..config import load_config
 from ..core.context import ContextEngine
 from ..core.pairs import get_spread
+from ..core.markets import get_profile
 from ..engine.journal import ExpectancyJournal
 from ..engine.alerts import MIN_RR_TO_DOL
 from ..entries.choch_no_idm import ChoChNoIDM
 from ..entries.scm import SingleCandleMitigation
 
 MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation}
+M15_WINDOW = 1500  # trailing M15 bars fed to ContextEngine (~15 days; bounds cost)
 
 class BacktestEngine:
     def __init__(self, journal, config):
@@ -27,20 +31,30 @@ class BacktestEngine:
         spread = get_spread(pair)
         if spread is None:
             raise ValueError(f"No spread configured for {pair}")
+        prof = get_profile(pair)
+        compute_poi = bool(self.config.conditions.require_unmitigated_zone)
         df_m15 = df_m5.resample("15min").agg(
             {"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+        m15_idx = df_m15.index
         ctx_engine = ContextEngine(swing_length=self.config.params.swing_length,
                                    kill_zones_utc=self.config.conditions.kill_zones)
         modules = [MODULE_REGISTRY[n]() for n in self.config.entry_modules if n in MODULE_REGISTRY]
         warmup = max(120, self.config.params.swing_length * 12)
+        j = 0
+        ctx_slot = -1
+        ctx = None
         for i in range(warmup, len(df_m5) - 1):
             bar = df_m5.iloc[i]
             t = df_m5.index[i]
             self._manage_trades(bar, i)
-            valid_m15 = df_m15[df_m15.index + pd.Timedelta(minutes=15) <= t]
-            if valid_m15.empty:
+            while j < len(m15_idx) and m15_idx[j] + pd.Timedelta(minutes=15) <= t:
+                j += 1
+            if j == 0:
                 continue
-            ctx = ctx_engine.build(valid_m15, t, pair=pair)
+            if ctx_slot != j:
+                ctx = ctx_engine.build(df_m15.iloc[max(0, j - M15_WINDOW):j], t,
+                                       pair=pair, profile=prof, compute_poi=compute_poi)
+                ctx_slot = j
             if ctx is None:
                 continue
             signal = None
@@ -58,8 +72,15 @@ class BacktestEngine:
             entry = next_open + spread if direction == "BUY" else next_open - spread
             sl, tp = signal["sl"], signal["tp"]
             risk = abs(entry - sl)
-            rr = abs(tp - entry) / risk if risk > 0 else 0.0
+            reward = (tp - entry) if direction == "BUY" else (entry - tp)
+            rr = reward / risk if risk > 0 else 0.0
             ts = t.isoformat()
+            if reward <= 0:
+                print(f"[{pair}] TP ON WRONG SIDE (dir={direction} entry={entry:.5f} tp={tp:.5f}) - structural skip")
+                self.journal.log_signal(signal, skipped=True,
+                                        skip_reason=f"WRONG_SIDE_TP rr={rr:.2f}",
+                                        timestamp_override=ts)
+                continue
             if rr < MIN_RR_TO_DOL:
                 self.journal.log_signal(signal, skipped=True,
                                         skip_reason=f"RR {rr:.2f} < {MIN_RR_TO_DOL}",
@@ -92,13 +113,13 @@ class BacktestEngine:
                 adverse_r = (entry - bar["low"]) / risk
                 close_r = (bar["close"] - entry) / risk
                 sl_hit = bar["low"] <= sl
-                dol_hit = bar["high"] >= tp
+                dol_hit = tp > entry and bar["high"] >= tp
             else:
                 profit_r = (entry - bar["low"]) / risk
                 adverse_r = (bar["high"] - entry) / risk
                 close_r = (entry - bar["close"]) / risk
                 sl_hit = bar["high"] >= sl
-                dol_hit = bar["low"] <= tp
+                dol_hit = tp < entry and bar["low"] <= tp
             tr["mae_r"] = min(tr["mae_r"], -adverse_r)
             tr["mfe_r"] = max(tr["mfe_r"], profit_r)
             bars_held = idx - tr["entry_bar_idx"]
@@ -166,6 +187,8 @@ class BacktestEngine:
 def _load_csv(path):
     df = pd.read_csv(path, index_col=0, parse_dates=True)
     df.columns = [c.lower() for c in df.columns]
+    if "volume" not in df.columns:
+        df["volume"] = 1000
     df.index = df.index.tz_localize("UTC") if df.index.tz is None else df.index.tz_convert("UTC")
     df = df.sort_index()
     now = pd.Timestamp.now(tz="UTC")
@@ -194,11 +217,21 @@ if __name__ == "__main__":
     ap.add_argument("csv")
     ap.add_argument("--pair", default="XAUUSD")
     ap.add_argument("--db", default="backtest_journal.db")
+    ap.add_argument("--start", default=None, help="inclusive start date YYYY-MM-DD (UTC)")
+    ap.add_argument("--end", default=None, help="exclusive end date YYYY-MM-DD (UTC)")
     args = ap.parse_args()
     config = load_config()
     journal = ExpectancyJournal(db_path=args.db)
+    df = _load_csv(args.csv)
+    if args.start:
+        df = df[df.index >= pd.Timestamp(args.start, tz="UTC")]
+    if args.end:
+        df = df[df.index < pd.Timestamp(args.end, tz="UTC")]
+    if len(df) < 500:
+        raise SystemExit(f"Window too small: {len(df)} bars - check --start/--end against CSV range")
+    print(f"Backtesting {len(df)} bars: {df.index[0]} -> {df.index[-1]}")
     engine = BacktestEngine(journal, config)
-    stats = engine.run(_load_csv(args.csv), args.pair)
+    stats = engine.run(df, args.pair)
     print(f"\n=== EXPECTANCY: {args.pair} ===")
     if not stats:
         print("No module reached 30 closed trades yet.")

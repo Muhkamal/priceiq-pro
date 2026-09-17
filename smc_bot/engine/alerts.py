@@ -44,8 +44,11 @@ def format_smc_checklist(signal, balance, config) -> str:
     risk_dist = abs(ref - sl)
     tp4 = ref + risk_dist * 4 if direction == "BUY" else ref - risk_dist * 4
     tp10 = ref + risk_dist * 10 if direction == "BUY" else ref - risk_dist * 10
-    size_line = (f"Lot Size: <b>{lots:.2f}</b>" if lots > 0
-                 else "Lot Size: <b>BELOW BROKER MIN - 0.01 would exceed 0.5% risk. SKIP or accept higher risk.</b>")
+    if signal.get("stake_based"):
+        size_line = f"Stake: <b>${risk_usd:.2f}</b> (Deriv stake = your 0.5% risk amount)"
+    else:
+        size_line = (f"Lot Size: <b>{lots:.2f}</b>" if lots > 0
+                     else "Lot Size: <b>BELOW BROKER MIN - 0.01 would exceed 0.5% risk. SKIP or accept higher risk.</b>")
     emoji = "🟢" if direction == "BUY" else "🔴"
     return (
         f"🚨 <b>SMC SCANNER: {pair}</b> {emoji} <b>{direction}</b>\n"

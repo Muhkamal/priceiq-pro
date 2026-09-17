@@ -13,6 +13,11 @@ class SingleCandleMitigation(EntryModule):
             return None
         if ctx.bias == "BEARISH" and ctx.zone != "PREMIUM":
             return None
+        max_ret = getattr(config.params, "max_retracement", 1.0)
+        if max_ret < 1.0 and (ctx.retr is None or ctx.retr < 0.5 or ctx.retr > max_ret):
+            return None
+        if getattr(config.conditions, "require_unmitigated_zone", False) and not ctx.in_poi:
+            return None
         if len(df) < 4:
             return None
         c0, c1 = df.iloc[-1], df.iloc[-2]
