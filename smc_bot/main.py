@@ -102,7 +102,7 @@ async def send_morning_briefing():
 
 
 async def scan_pair(pair: str):
-    global _skip_count, _ctx_none_count
+    global _skip_count, _ctx_none_count, _skip_zone, _skip_killzone, _skip_module
     spread = get_spread(pair)
     if spread is None:
         return
