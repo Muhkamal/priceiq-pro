@@ -43,6 +43,10 @@ _scan_count = 0
 _alert_count = 0
 _skip_count = 0
 _ctx_none_count = 0
+_skip_zone = 0
+_skip_killzone = 0
+_skip_module = 0
+_skip_rr = 0
 
 
 async def send_morning_briefing():
@@ -129,6 +133,17 @@ async def scan_pair(pair: str):
         _ctx_none_count += 1
         return
 
+    if ctx.zone == "EQUILIBRIUM" or (ctx.bias == "BULLISH" and ctx.zone != "DISCOUNT") or (ctx.bias == "BEARISH" and ctx.zone != "PREMIUM"):
+        _skip_zone += 1
+    if not ctx.in_kill_zone:
+        _skip_killzone += 1
+
+    # Log skip reasons for observability
+    if ctx.zone == "EQUILIBRIUM" or (ctx.bias == "BULLISH" and ctx.zone != "DISCOUNT") or (ctx.bias == "BEARISH" and ctx.zone != "PREMIUM"):
+        _skip_zone += 1
+    if not ctx.in_kill_zone:
+        _skip_killzone += 1
+
     logger.info(
         f"[{pair}] bias={ctx.bias} | zone={ctx.zone} | kill_zone={ctx.in_kill_zone} | "
         f"eq={ctx.equilibrium:.5f} | DOL={('none' if ctx.dol is None else format(ctx.dol, '.5f'))} | PDH={ctx.pdh:.5f} PDL={ctx.pdl:.5f} | "
@@ -145,6 +160,7 @@ async def scan_pair(pair: str):
             signal["stake_based"] = bool(prof and prof.stake_based)
             break
     if not signal:
+        _skip_module += 1
         return
 
     bar_ts = df_m5.index[-1].isoformat()
@@ -177,7 +193,7 @@ async def scan_pair(pair: str):
 
 
 async def scanner_loop():
-    global _scan_count, _last_briefing_date
+    global _scan_count, _last_briefing_date, _last_diag_hour
     logger.info(f"🚀 SMC scanner started: markets={CONFIG.markets}")
     while True:
         now = datetime.now(timezone.utc)
@@ -196,6 +212,13 @@ async def scanner_loop():
             except Exception as e:
                 logger.error(f"Scan error {pair}: {e}")
 
+        if _last_diag_hour != now.hour:
+            _last_diag_hour = now.hour
+            logger.info(
+                f"📊 hourly diag: scans={_scan_count} alerts={_alert_count} "
+                f"rr_skips={_skip_count} ctx_none={_ctx_none_count} "
+                f"zone_skips={_skip_zone} kz_skips={_skip_killzone} module_miss={_skip_module}"
+            )
         secs = 300 - (now.minute % 5) * 60 - now.second + 5
         await asyncio.sleep(max(10, secs))
 

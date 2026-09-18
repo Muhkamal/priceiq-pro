@@ -70,6 +70,10 @@ class ContextEngine:
             else:
                 pdh = float(df_m15["high"].max()); pdl = float(df_m15["low"].min())
         # DOL = nearest liquidity pool on the trend side of price
+        # If None: the draw is already swept (price past PDH bullish / PDL bearish).
+        # Intentional: no target, no trade. Entry modules skip cleanly on ctx.dol is None.
+        # If None, the draw has already been swept (price above PDH for bullish, below PDL for bearish)
+        # This is intentional: no trade when the liquidity target is already consumed
         if bias == "BULLISH":
             cands = [x for x in (pdh, leg_high) if x > price * 1.0001]
             dol = min(cands) if cands else None

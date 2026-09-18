@@ -22,6 +22,6 @@ risk:
   max_correlated_usd: 2
   daily_loss_limit_pct: 2.0
 params:
-  swing_length: 5
+  swing_length: 10
   max_retracement: 0.786
   kill_zone_buffer_min: 0
