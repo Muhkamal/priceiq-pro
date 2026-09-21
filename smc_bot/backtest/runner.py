@@ -15,8 +15,9 @@ from ..entries.choch_no_idm import ChoChNoIDM
 from ..entries.scm import SingleCandleMitigation
 from ..entries.double_bos import DoubleBreakout
 from ..entries.choch_idm import ChoChIDM
+from ..entries.indicator_confluence import IndicatorConfluence
 
-MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM}
+MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM, "indicator_confluence": IndicatorConfluence}
 M15_WINDOW = 500
 
 class BacktestEngine:
@@ -322,6 +323,10 @@ if __name__ == "__main__":
         df = df[df.index < pd.Timestamp(args.end, tz="UTC")]
     if len(df) < 500:
         raise SystemExit(f"Window too small: {len(df)} bars - check --start/--end against CSV range")
+    from ..core.data_quality import validate_m5
+    ok, reason = validate_m5(df, args.pair)
+    if not ok:
+        raise SystemExit(f"data quality failed for {args.pair}: {reason}")
     print(f"Backtesting {len(df)} bars: {df.index[0]} -> {df.index[-1]}")
     engine = BacktestEngine(journal, config)
     stats = engine.run(df, args.pair)

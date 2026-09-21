@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from .config import load_config
 from .core.context import ContextEngine
+from .core.news_gate import check_news_blackout
 from .core.pairs import PAIR_SPECS, get_spread
 from .data.fetcher import fetch_m5
 from .data.deriv_fetcher import fetch_deriv_m5
@@ -23,13 +24,14 @@ from .entries.choch_no_idm import ChoChNoIDM
 from .entries.scm import SingleCandleMitigation
 from .entries.double_bos import DoubleBreakout
 from .entries.choch_idm import ChoChIDM
+from .entries.indicator_confluence import IndicatorConfluence
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('httpcore').setLevel(logging.WARNING)
 logger = logging.getLogger("smc_bot")
 
-MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM}
+MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM, "indicator_confluence": IndicatorConfluence}
 
 CONFIG = load_config()
 JOURNAL = ExpectancyJournal(db_path=os.environ.get("SMC_JOURNAL_DB", "smc_journal.db"))
@@ -105,6 +107,13 @@ async def send_morning_briefing():
 
 async def scan_pair(pair: str):
     global _skip_count, _ctx_none_count, _skip_zone, _skip_killzone, _skip_module
+
+    # News blackout gate (forex only, synthetics unaffected)
+    news_ok, news_reason = check_news_blackout(pair)
+    if not news_ok:
+        logger.info(f"[{pair}] ⛔ NEWS BLACKOUT: {news_reason}")
+        return
+
     spread = get_spread(pair)
     if spread is None:
         return
@@ -118,6 +127,11 @@ async def scan_pair(pair: str):
         return
     if "volume" not in df_m5.columns:
         df_m5["volume"] = 1000
+    from .core.data_quality import validate_m5
+    ok, reason = validate_m5(df_m5, pair)
+    if not ok:
+        logger.warning(f"[{pair}] data quality: {reason} - skipping cycle")
+        return
 
     now = datetime.now(timezone.utc)
     df_m15 = df_m5.resample("15min").agg(
@@ -143,9 +157,8 @@ async def scan_pair(pair: str):
     # Log skip reasons for observability
     if ctx.zone == "EQUILIBRIUM" or (ctx.bias == "BULLISH" and ctx.zone != "DISCOUNT") or (ctx.bias == "BEARISH" and ctx.zone != "PREMIUM"):
         _skip_zone += 1
-    if not ctx.in_kill_zone:
-        _skip_killzone += 1
 
+    # Unconditional context log (runs every scan, not just on zone skip)
     logger.info(
         f"[{pair}] bias={ctx.bias} | zone={ctx.zone} | kill_zone={ctx.in_kill_zone} | "
         f"eq={ctx.equilibrium:.5f} | DOL={('none' if ctx.dol is None else format(ctx.dol, '.5f'))} | PDH={ctx.pdh:.5f} PDL={ctx.pdl:.5f} | "
