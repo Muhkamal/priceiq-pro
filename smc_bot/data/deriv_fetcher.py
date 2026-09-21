@@ -1,37 +1,55 @@
-"""Deriv candle fetcher - uses the permissive binaryws.com endpoint (no auth needed)."""
-import asyncio
+"""Deriv WebSocket candle fetcher with lazy connection."""
 import json
 import logging
+import os
+import asyncio
 from typing import Optional
 import websockets
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# binaryws.com accepts unauthenticated public ticks_history requests.
-WS_URL = "wss://ws.binaryws.com/websockets/v3?app_id=1089"
+APP_ID = os.environ.get("DERIV_APP_ID", "1089")
+TOKEN = os.environ.get("DERIV_API_TOKEN", "")
+WS_URL = f"wss://ws.binaryws.com/websockets/v3?app_id={APP_ID}"
 
 class DerivWebSocket:
-    """Persistent WebSocket. All public methods serialize via self.lock."""
-
+    """Lazy WebSocket connection."""
+    
     def __init__(self):
         self.ws: Optional[object] = None
         self.lock = asyncio.Lock()
-
-    async def _connect(self):
+    
+    async def ensure_connected(self):
+        """Connect only when needed."""
         if self.ws is None or self.ws.closed:
-            self.ws = await websockets.connect(
-                WS_URL,
-                ping_interval=30,
-                ping_timeout=10,
-                open_timeout=15,
-                close_timeout=5,
-            )
-
-    async def fetch_candles(self, symbol: str, count: int, granularity: int) -> list:
-        async with self.lock:
             try:
-                await self._connect()
+                self.ws = await websockets.connect(
+                    WS_URL,
+                    ping_interval=30,
+                    ping_timeout=10,
+                    open_timeout=15,
+                    close_timeout=5
+                )
+                if TOKEN:
+                    await self.ws.send(json.dumps({"authorize": TOKEN}))
+                    auth = json.loads(await self.ws.recv())
+                    if "error" in auth:
+                        logger.error(f"Deriv auth failed: {auth['error'].get('message')}")
+                        await self.ws.close()
+                        self.ws = None
+                        raise Exception("Auth failed")
+            except Exception as e:
+                if self.ws:
+                    await self.ws.close()
+                self.ws = None
+                raise
+    
+    async def fetch_candles(self, symbol: str, count: int, granularity: int) -> list:
+        """Fetch with lazy connection."""
+        async with self.lock:
+            await self.ensure_connected()
+            try:
                 await self.ws.send(json.dumps({
                     "ticks_history": symbol,
                     "adjust_start_time": 1,
@@ -40,19 +58,18 @@ class DerivWebSocket:
                     "style": "candles",
                     "granularity": granularity,
                 }))
-                resp = json.loads(await asyncio.wait_for(self.ws.recv(), timeout=20))
+                resp = json.loads(await self.ws.recv())
                 return resp.get("candles", [])
-            except Exception:
-                if self.ws is not None:
+            except Exception as e:
+                if self.ws:
                     await self.ws.close()
                 self.ws = None
                 raise
-
+    
     async def close(self):
-        async with self.lock:
-            if self.ws is not None:
-                await self.ws.close()
-                self.ws = None
+        if self.ws:
+            await self.ws.close()
+            self.ws = None
 
 _deriv_ws = DerivWebSocket()
 
@@ -71,10 +88,8 @@ async def fetch_deriv_m5(symbol: str, limit: int = 1000, granularity: int = 300)
         for c in ("open", "high", "low", "close"):
             df[c] = df[c].astype(float)
         
-        # Inject dummy volume for SMC library compatibility
         df["volume"] = 1000
         
-        # Drop the forming (current) candle
         now = pd.Timestamp.now(tz="UTC")
         df = df[df.index + pd.Timedelta(seconds=granularity) <= now]
         

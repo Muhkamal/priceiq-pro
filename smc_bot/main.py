@@ -21,13 +21,15 @@ from .engine.alerts import TelegramSender, passes_rr_gate, send_smc_alert, MIN_R
 from .engine.journal import ExpectancyJournal, VALID_OUTCOMES, VALID_EXIT_REASONS
 from .entries.choch_no_idm import ChoChNoIDM
 from .entries.scm import SingleCandleMitigation
+from .entries.double_bos import DoubleBreakout
+from .entries.choch_idm import ChoChIDM
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('httpcore').setLevel(logging.WARNING)
 logger = logging.getLogger("smc_bot")
 
-MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation}
+MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM}
 
 CONFIG = load_config()
 JOURNAL = ExpectancyJournal(db_path=os.environ.get("SMC_JOURNAL_DB", "smc_journal.db"))

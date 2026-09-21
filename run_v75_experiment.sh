@@ -43,6 +43,7 @@ for sl in [5, 10, 15]:
         FROM trades WHERE outcome IS NOT NULL AND outcome != 'SKIPPED'
     """)
     n, total, avg, wr = cur.fetchone()
+    n = n or 0; total = total or 0; avg = avg or 0; wr = wr or 0
     conn.close()
     print(f"{sl:<10} {n:<6} {total:+12.2f} {avg:+12.3f} {wr or 0:>9.1f}%")
 PYEOF

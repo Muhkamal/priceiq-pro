@@ -1,4 +1,4 @@
-"""Event-driven M5 backtest with progress tracking and bounded context builds."""
+"""Event-driven M5 backtest with gate skip counters and progress tracking."""
 import argparse
 import statistics
 import pandas as pd
@@ -13,9 +13,11 @@ from ..engine.journal import ExpectancyJournal
 from ..engine.alerts import MIN_RR_TO_DOL
 from ..entries.choch_no_idm import ChoChNoIDM
 from ..entries.scm import SingleCandleMitigation
+from ..entries.double_bos import DoubleBreakout
+from ..entries.choch_idm import ChoChIDM
 
-MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation}
-M15_WINDOW = 500  # Reduced from 1500 for faster backtests (~5 days)
+MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM}
+M15_WINDOW = 500
 
 class BacktestEngine:
     def __init__(self, journal, config):
@@ -23,6 +25,21 @@ class BacktestEngine:
         self.config = config
         self.time_stop_bars = config.invalidation.time_stop_bars
         self.active_trades: List[Dict[str, Any]] = []
+        self.gate_counts = {
+            "total_bars": 0,
+            "ctx_none": 0,
+            "dol_none": 0,
+            "zone_gate": 0,
+            "kill_zone": 0,
+            "module_miss": 0,
+            "rr_skip": 0,
+            "wrong_side": 0,
+            "signals": 0,
+            "pattern_raw_bull": 0,
+            "pattern_raw_bear": 0
+        }
+        self.module_signals = {}
+        self.module_fired = {}
 
     def run(self, df_m5, pair: str):
         if not isinstance(df_m5.index, pd.DatetimeIndex):
@@ -52,41 +69,76 @@ class BacktestEngine:
         print(f"Processing {total_bars} bars (warmup={warmup})...", end='', flush=True)
         
         for i in range(warmup, len(df_m5) - 1):
-            # Progress indicator
             if i % 5000 == 0:
                 pct = (i - warmup) / total_bars * 100
                 print(f"\rProcessing {total_bars} bars: {pct:.0f}% ({i - warmup}/{total_bars})", end='', flush=True)
             
             bar = df_m5.iloc[i]
             t = df_m5.index[i]
+            self.gate_counts["total_bars"] += 1
             self._manage_trades(bar, i)
             
-            # Find latest M15 close before this M5 bar
             while j < len(m15_idx) and m15_idx[j] + pd.Timedelta(minutes=15) <= t:
                 j += 1
             
             if j == 0:
                 continue
             
-            # Rebuild context only at M15 close boundaries
             if ctx_slot != j:
                 ctx = ctx_engine.build(df_m15.iloc[max(0, j - M15_WINDOW):j], t,
                                        pair=pair, profile=prof, compute_poi=compute_poi)
                 ctx_slot = j
             
             if ctx is None:
+                self.gate_counts["ctx_none"] += 1
                 continue
             
+            if ctx.dol is None:
+                self.gate_counts["dol_none"] += 1
+            
+            # Zone gate: must be in correct zone for bias
+            if ctx.zone == "EQUILIBRIUM" or \
+               (ctx.bias == "BULLISH" and ctx.zone != "DISCOUNT") or \
+               (ctx.bias == "BEARISH" and ctx.zone != "PREMIUM"):
+                self.gate_counts["zone_gate"] += 1
+                continue
+            
+            # Kill zone gate (disabled for synthetics via profile)
+            if not ctx.in_kill_zone:
+                self.gate_counts["kill_zone"] += 1
+                continue
+            
+            # Raw pattern detection (no context gates)
+            if i >= 2:
+                c0 = df_m5.iloc[i]
+                c1 = df_m5.iloc[i - 1]
+                c2 = df_m5.iloc[i - 2]
+                
+                # Bullish: sweep prev low, close through candle-before's high
+                if c0["low"] < c1["low"] and c0["close"] > c2["high"]:
+                    self.gate_counts["pattern_raw_bull"] += 1
+                
+                # Bearish: sweep prev high, close through candle-before's low
+                if c0["high"] > c1["high"] and c0["close"] < c2["low"]:
+                    self.gate_counts["pattern_raw_bear"] += 1
+            
+            # Module check
             signal = None
             for mod in modules:
                 signal = mod.check(df_m5.iloc[:i + 1], ctx, self.config)
                 if signal:
+                    self.module_fired[signal["module"]] = \
+                        self.module_fired.get(signal["module"], 0) + 1
                     signal["pair"] = pair
                     signal["ctx"] = {"bias": ctx.bias, "zone": ctx.zone,
                                      "pdh": ctx.pdh, "pdl": ctx.pdl}
                     break
+            
             if not signal:
+                self.gate_counts["module_miss"] += 1
                 continue
+            
+            self.gate_counts["signals"] += 1
             
             direction = signal["direction"]
             next_open = df_m5.iloc[i + 1]["open"]
@@ -98,19 +150,15 @@ class BacktestEngine:
             ts = t.isoformat()
             
             if reward <= 0:
-                print(f"\n[{pair}] TP ON WRONG SIDE (dir={direction} entry={entry:.5f} tp={tp:.5f}) - structural skip")
-                self.journal.log_signal(signal, skipped=True,
-                                        skip_reason=f"WRONG_SIDE_TP rr={rr:.2f}",
-                                        timestamp_override=ts)
+                self.gate_counts["wrong_side"] += 1
                 continue
             
             if rr < MIN_RR_TO_DOL:
-                self.journal.log_signal(signal, skipped=True,
-                                        skip_reason=f"RR {rr:.2f} < {MIN_RR_TO_DOL}",
-                                        timestamp_override=ts)
+                self.gate_counts["rr_skip"] += 1
                 continue
             
             signal.update(ref_price=entry, sl=sl, tp=tp, rr_to_dol=rr)
+            self.module_signals[signal["module"]] = self.module_signals.get(signal["module"], 0) + 1
             row_id = self.journal.log_signal(signal, timestamp_override=ts)
             if row_id:
                 self.active_trades.append({
@@ -128,6 +176,16 @@ class BacktestEngine:
         print("\rProcessing complete. Finalizing trades...", end='', flush=True)
         self._force_close_all(df_m5.iloc[-1], len(df_m5) - 1)
         print(" done.")
+        
+        # Print gate counters
+        print("\n=== GATE SKIP COUNTERS ===")
+        for mod in sorted(set(self.module_fired) | set(self.module_signals)):
+            print(f"  fired[{mod}]".ljust(17) + f": {self.module_fired.get(mod, 0):>6}")
+            print(f"  passed[{mod}]".ljust(17) + f": {self.module_signals.get(mod, 0):>6}")
+        for gate, count in self.gate_counts.items():
+            print(f"  {gate:<15}: {count:>6}")
+        print("")
+        
         return self.journal.get_all_modules_expectancy()
 
     def _manage_trades(self, bar, idx):

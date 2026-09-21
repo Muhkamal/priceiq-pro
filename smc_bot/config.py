@@ -24,6 +24,8 @@ class RiskConfig:
 @dataclass
 class ParamsConfig:
     swing_length: int = 10
+    continuation_target: str = "dol"
+    stop_mode: str = "consolidation"  # "consolidation" | "retest_candle"  # "dol" | "measured_move" | "next_swing"
     kill_zone_buffer_min: int = 0
     max_retracement: float = 1.0
 
