@@ -3,3 +3,21 @@ venv/
 __pycache__/
 *.pyc
 .env
+
+# Market data (too large for GitHub)
+data/*.csv
+
+# Backtest outputs
+bt_*.db
+backtest_journal.db
+
+# Archives
+*.zip
+nk/
+
+# Runtime caches
+data/news_cache.json
+economic_calendar_cache.json
+
+# Killed modules (research only)
+# smc_bot/entries/indicator_confluence.py
