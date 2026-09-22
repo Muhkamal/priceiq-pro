@@ -92,6 +92,16 @@ class ExpectancyJournal:
         conn.close()
         return ok
 
+    def reset(self):
+        """Delete all rows. Backtest runner uses this with --fresh so runs
+        never accumulate across sweeps (the n=37->74->111 bug)."""
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM trades")
+        conn.commit()
+        conn.close()
+        logger.info(f"Journal reset: {self.db_path}")
+
     def set_alert_msg_id(self, row_id, msg_id):
         conn = sqlite3.connect(self.db_path)
         cur = conn.cursor()

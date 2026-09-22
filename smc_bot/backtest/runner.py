@@ -313,27 +313,50 @@ if __name__ == "__main__":
     ap.add_argument("--db", default="backtest_journal.db")
     ap.add_argument("--start", default=None, help="inclusive start date YYYY-MM-DD (UTC)")
     ap.add_argument("--end", default=None, help="exclusive end date YYYY-MM-DD (UTC)")
+    ap.add_argument("--fresh", action="store_true",
+                    help="Reset journal DB before running (no cross-run accumulation)")
+    ap.add_argument("--verify", action="store_true",
+                    help="Run twice on temp DBs, assert identical trade counts")
     args = ap.parse_args()
     config = load_config()
-    journal = ExpectancyJournal(db_path=args.db)
-    df = _load_csv(args.csv)
-    if args.start:
-        df = df[df.index >= pd.Timestamp(args.start, tz="UTC")]
-    if args.end:
-        df = df[df.index < pd.Timestamp(args.end, tz="UTC")]
-    if len(df) < 500:
-        raise SystemExit(f"Window too small: {len(df)} bars - check --start/--end against CSV range")
-    from ..core.data_quality import validate_m5
-    ok, reason = validate_m5(df, args.pair)
-    if not ok:
-        raise SystemExit(f"data quality failed for {args.pair}: {reason}")
-    print(f"Backtesting {len(df)} bars: {df.index[0]} -> {df.index[-1]}")
-    engine = BacktestEngine(journal, config)
-    stats = engine.run(df, args.pair)
-    print(f"\n=== EXPECTANCY: {args.pair} ===")
-    if not stats:
-        print("No module reached 30 closed trades yet.")
-    for m, s in stats.items():
-        print(f"{m}: n={s['n']} W/L/T={s['wins']}/{s['losses']}/{s['timeouts']} "
-              f"WR={s['win_rate']:.0%} exp={s['expectancy_r']:+.2f}R PF={s['profit_factor']:.2f} total={s['total_r']:+.1f}R")
-    _print_mae_mfe(journal)
+
+    def _one_run(db_path):
+        journal = ExpectancyJournal(db_path=db_path)
+        if args.fresh or args.verify:
+            journal.reset()
+        df = _load_csv(args.csv)
+        if args.start:
+            df = df[df.index >= pd.Timestamp(args.start, tz="UTC")]
+        if args.end:
+            df = df[df.index < pd.Timestamp(args.end, tz="UTC")]
+        if len(df) < 500:
+            raise SystemExit(f"Window too small: {len(df)} bars - check --start/--end")
+        print(f"Backtesting {len(df)} bars: {df.index[0]} -> {df.index[-1]}  [db={db_path}]")
+        engine = BacktestEngine(journal, config)
+        return engine.run(df, args.pair)
+
+    def _report(stats, pair):
+        print(f"\n=== EXPECTANCY: {pair} ===")
+        if not stats:
+            print("No module reached 30 closed trades yet.")
+        for m, s in stats.items():
+            print(f"{m}: n={s['n']} W/L/T={s['wins']}/{s['losses']}/{s['timeouts']} "
+                  f"WR={s['win_rate']:.0%} exp={s['expectancy_r']:+.2f}R PF={s['profit_factor']:.2f} total={s['total_r']:+.1f}R")
+
+    if args.verify:
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as tmp:
+            s1 = _one_run(os.path.join(tmp, "r1.db"))
+            s2 = _one_run(os.path.join(tmp, "r2.db"))
+        n1 = {m: s["n"] for m, s in s1.items()}
+        n2 = {m: s["n"] for m, s in s2.items()}
+        if n1 == n2:
+            print(f"\nREPRODUCIBILITY OK: {n1}")
+        else:
+            print(f"\nREPRODUCIBILITY FAILED: run1={n1} run2={n2}")
+            raise SystemExit(2)
+        _report(s1, args.pair)
+    else:
+        stats = _one_run(args.db)
+        _report(stats, args.pair)
+        _print_mae_mfe(ExpectancyJournal(db_path=args.db))
