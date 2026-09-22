@@ -118,14 +118,24 @@ async def scan_pair(pair: str):
 
     spread = get_spread(pair)
     if spread is None:
+        logger.warning(f"[{pair}] SCAN SKIP: spread lookup returned None")
         return
     prof = get_profile(pair)
     if prof and prof.source == 'deriv':
-        df_m5 = await fetch_deriv_m5(prof.deriv_symbol, limit=1000,
-                                     granularity=prof.granularity)
+        try:
+            df_m5 = await fetch_deriv_m5(prof.deriv_symbol, limit=1000,
+                                         granularity=prof.granularity)
+        except Exception as e:
+            logger.warning(f"[{pair}] FETCH ERROR (deriv): {e}")
+            df_m5 = None
     else:
-        df_m5 = await fetch_m5(pair, limit=1000)
+        try:
+            df_m5 = await fetch_m5(pair, limit=1000)
+        except Exception as e:
+            logger.warning(f"[{pair}] FETCH ERROR (twelvedata): {e}")
+            df_m5 = None
     if df_m5 is None or len(df_m5) < 120:
+        logger.warning(f"[{pair}] SCAN SKIP: no/too few bars ({0 if df_m5 is None else len(df_m5)})")
         return
     if "volume" not in df_m5.columns:
         df_m5["volume"] = 1000
@@ -141,6 +151,7 @@ async def scan_pair(pair: str):
     ).dropna()
     valid_m15 = df_m15[df_m15.index + pd.Timedelta(minutes=15) <= now]
     if valid_m15.empty:
+        logger.warning(f"[{pair}] SCAN SKIP: no closed M15 bars after resample")
         return
 
     ctx = CTX_ENGINE.build(
@@ -149,6 +160,7 @@ async def scan_pair(pair: str):
     )
     if ctx is None:
         _ctx_none_count += 1
+        logger.warning(f"[{pair}] SCAN SKIP: context build returned None")
         return
 
     if ctx.zone == "EQUILIBRIUM" or (ctx.bias == "BULLISH" and ctx.zone != "DISCOUNT") or (ctx.bias == "BEARISH" and ctx.zone != "PREMIUM"):
