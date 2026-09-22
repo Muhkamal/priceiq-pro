@@ -3,6 +3,7 @@ Render start command: uvicorn smc_bot.main:app --host 0.0.0.0 --port $PORT
 Telegram: /close WIN 2.4 DOL (reply to alert) | /close XAUUSD WIN 2.4 DOL | /pending"""
 import asyncio
 import logging
+import time
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -50,6 +51,8 @@ _skip_zone = 0
 _skip_killzone = 0
 _skip_module = 0
 _skip_rr = 0
+_last_diag_hour = None
+_last_scan_ts = 0.0
 
 
 async def send_morning_briefing():
@@ -207,10 +210,11 @@ async def scan_pair(pair: str):
 
 
 async def scanner_loop():
-    global _scan_count, _last_briefing_date, _last_diag_hour
+    global _scan_count, _last_briefing_date, _last_diag_hour, _last_scan_ts
     logger.info(f"🚀 SMC scanner started: markets={CONFIG.markets}")
     while True:
         now = datetime.now(timezone.utc)
+        _last_scan_ts = time.time()
 
         if now.hour == 7 and now.minute < 5 and _last_briefing_date != now.date():
             try:
@@ -312,9 +316,23 @@ async def telegram_command_loop():
         await asyncio.sleep(1)
 
 
+
+async def _scanner_supervisor():
+    """Restarts scanner_loop if it ever dies. Loudly — never silent again."""
+    while True:
+        task = asyncio.create_task(scanner_loop())
+        try:
+            await task
+            logger.error("🔴 SCANNER LOOP EXITED — supervisor restarting in 5s")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"🔴 SCANNER LOOP CRASHED: {e} — supervisor restarting in 5s")
+        await asyncio.sleep(5)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    t1 = asyncio.create_task(scanner_loop())
+    t1 = asyncio.create_task(_scanner_supervisor())
     t2 = asyncio.create_task(telegram_command_loop())
     yield
     t1.cancel()
@@ -327,4 +345,7 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/health")
 @app.head("/health")
 async def health():
-    return {"status": "ok", "mode": "smc_scanner"}
+    age = time.time() - _last_scan_ts
+    return {"status": "ok", "mode": "smc_scanner",
+            "scanner_last_scan_seconds_ago": round(age, 1),
+            "scanner_alive": age < 600}
