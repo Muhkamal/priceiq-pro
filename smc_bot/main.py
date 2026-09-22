@@ -111,8 +111,8 @@ async def scan_pair(pair: str):
     global _skip_count, _ctx_none_count, _skip_zone, _skip_killzone, _skip_module
 
     # News blackout gate (forex only, synthetics unaffected)
-    news_ok, news_reason = check_news_blackout(pair)
-    if not news_ok:
+    blocked, news_reason = check_news_blackout(pair)
+    if blocked:
         logger.info(f"[{pair}] ⛔ NEWS BLACKOUT: {news_reason}")
         return
 
