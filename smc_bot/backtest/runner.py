@@ -344,14 +344,27 @@ if __name__ == "__main__":
                   f"WR={s['win_rate']:.0%} exp={s['expectancy_r']:+.2f}R PF={s['profit_factor']:.2f} total={s['total_r']:+.1f}R")
 
     if args.verify:
-        import tempfile, os
+        import tempfile, os, sqlite3
         with tempfile.TemporaryDirectory() as tmp:
-            s1 = _one_run(os.path.join(tmp, "r1.db"))
-            s2 = _one_run(os.path.join(tmp, "r2.db"))
-        n1 = {m: s["n"] for m, s in s1.items()}
-        n2 = {m: s["n"] for m, s in s2.items()}
+            d1 = os.path.join(tmp, "r1.db")
+            d2 = os.path.join(tmp, "r2.db")
+            s1 = _one_run(d1)
+            s2 = _one_run(d2)
+
+            def _counts(db):
+                conn = sqlite3.connect(db)
+                c = dict(conn.execute(
+                    "SELECT module, COUNT(*) FROM trades GROUP BY module").fetchall())
+                conn.close()
+                return c
+
+            n1, n2 = _counts(d1), _counts(d2)   # raw journal rows: non-vacuous
+
+        total = sum(n1.values())
         if n1 == n2:
             print(f"\nREPRODUCIBILITY OK: {n1}")
+            if total < 10:
+                print(f"NOTE: only {total} trades in window - deterministic but thin sample")
         else:
             print(f"\nREPRODUCIBILITY FAILED: run1={n1} run2={n2}")
             raise SystemExit(2)
