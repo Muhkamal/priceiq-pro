@@ -143,7 +143,7 @@ class BacktestEngine:
             
             direction = signal["direction"]
             next_open = df_m5.iloc[i + 1]["open"]
-            entry = next_open + spread if direction == "BUY" else next_open - spread
+            entry = next_open + 1.25 * spread if direction == "BUY" else next_open - 1.25 * spread
             sl, tp = signal["sl"], signal["tp"]
             risk = abs(entry - sl)
             reward = (tp - entry) if direction == "BUY" else (entry - tp)
@@ -337,6 +337,7 @@ if __name__ == "__main__":
             raise SystemExit(f"Window too small: {len(df)} bars - check --start/--end")
         print(f"Backtesting {len(df)} bars: {df.index[0]} -> {df.index[-1]}  [db={db_path}]")
         print(f"CONFIG: swing_length={config.params.swing_length} target={config.params.continuation_target}")
+        print(f"COST: spread(full,at-entry)=2xhalf + slippage=25% -> model charges 1.25x spread")
         engine = BacktestEngine(journal, config)
         return engine.run(df, args.pair)
 
