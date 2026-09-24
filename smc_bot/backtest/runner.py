@@ -315,10 +315,14 @@ if __name__ == "__main__":
     ap.add_argument("--end", default=None, help="exclusive end date YYYY-MM-DD (UTC)")
     ap.add_argument("--fresh", action="store_true",
                     help="Reset journal DB before running (no cross-run accumulation)")
+    ap.add_argument("--target", choices=["dol", "measured_move", "next_swing"],
+                    default=None, help="Override continuation_target for this run")
     ap.add_argument("--verify", action="store_true",
                     help="Run twice on temp DBs, assert identical trade counts")
     args = ap.parse_args()
     config = load_config()
+    if args.target:
+        config.params.continuation_target = args.target
 
     def _one_run(db_path):
         journal = ExpectancyJournal(db_path=db_path)
@@ -332,6 +336,7 @@ if __name__ == "__main__":
         if len(df) < 500:
             raise SystemExit(f"Window too small: {len(df)} bars - check --start/--end")
         print(f"Backtesting {len(df)} bars: {df.index[0]} -> {df.index[-1]}  [db={db_path}]")
+        print(f"CONFIG: swing_length={config.params.swing_length} target={config.params.continuation_target}")
         engine = BacktestEngine(journal, config)
         return engine.run(df, args.pair)
 
