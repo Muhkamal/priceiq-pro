@@ -16,7 +16,6 @@ import pandas as pd
 from .base import EntryModule
 from ..core.pairs import buffer_price
 
-
 class ChoChIDM(EntryModule):
     name = "CHoCH_IDM"
 

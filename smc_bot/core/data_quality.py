@@ -1,7 +1,6 @@
 """Pre-gate: reject candle windows that would corrupt swing mapping."""
 import pandas as pd
 
-
 def validate_m5(df, pair: str, max_gap_min: float = 35.0, max_spike_mult: float = 8.0):
     """Returns (ok, reason). Bad ticks -> false BOS/CHoCH -> poisoned journal.
 

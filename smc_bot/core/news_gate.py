@@ -27,14 +27,12 @@ SYNTHETICS = {"V75", "V100", "STEP", "BOOM", "CRASH"}
 BLACKOUT_PRE = {"HIGH": 20, "MEDIUM": 10}
 BLACKOUT_POST = {"HIGH": 15, "MEDIUM": 10}
 
-
 @dataclass
 class NewsEvent:
     title: str
     currency: str
     impact: str  # "HIGH" | "MEDIUM" | "LOW"
     dt_utc: datetime
-
 
 class NewsGate:
     """Pre-gate: blocks forex signals during high-impact news."""
@@ -199,7 +197,6 @@ class NewsGate:
             logger.info(f"News cache loaded: {len(self._events)} events")
         except Exception as e:
             logger.debug(f"Cache load error: {e}")
-
 
 # Singleton instance
 _news_gate = NewsGate()

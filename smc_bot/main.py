@@ -54,7 +54,6 @@ _skip_rr = 0
 _last_diag_hour = None
 _last_scan_ts = 0.0
 
-
 async def send_morning_briefing():
     """Sends a daily market narrative at 07:00 UTC (London Open)."""
     msg = "☀️ <b>GOOD MORNING! Daily SMC Briefing</b>\n\n"
@@ -105,7 +104,6 @@ async def send_morning_briefing():
 
     await SENDER.send_owner_dm(msg)
     logger.info("☀️ Morning Briefing sent to Telegram")
-
 
 async def scan_pair(pair: str):
     global _skip_count, _ctx_none_count, _skip_zone, _skip_killzone, _skip_module
@@ -220,7 +218,6 @@ async def scan_pair(pair: str):
         JOURNAL.set_alert_msg_id(row_id, mid)
         _alert_count += 1
 
-
 async def scanner_loop():
     global _scan_count, _last_briefing_date, _last_diag_hour, _last_scan_ts
     logger.info(f"🚀 SMC scanner started: markets={CONFIG.markets}")
@@ -251,7 +248,6 @@ async def scanner_loop():
             )
         secs = 300 - (now.minute % 5) * 60 - now.second + 5
         await asyncio.sleep(max(10, secs))
-
 
 async def handle_update(client, up):
     msg = up.get("message") or {}
@@ -309,7 +305,6 @@ async def handle_update(client, up):
             json={"chat_id": chat_id, "text": reply_text},
         )
 
-
 async def telegram_command_loop():
     offset = 0
     while True:
@@ -326,8 +321,6 @@ async def telegram_command_loop():
         except Exception as e:
             logger.error(f"Polling error: {e}")
         await asyncio.sleep(1)
-
-
 
 async def _scanner_supervisor():
     """Restarts scanner_loop if it ever dies. Loudly — never silent again."""
@@ -350,9 +343,7 @@ async def lifespan(app: FastAPI):
     t1.cancel()
     t2.cancel()
 
-
 app = FastAPI(lifespan=lifespan)
-
 
 @app.get("/health")
 @app.head("/health")

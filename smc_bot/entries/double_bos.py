@@ -22,7 +22,6 @@ from ..core.pairs import buffer_price
 # Experiment F shows the touch rate is pair-sensitive.
 RETEST_TOL_FRAC = 0.0005
 
-
 class DoubleBreakout(EntryModule):
     name = "Double_BOS"
 

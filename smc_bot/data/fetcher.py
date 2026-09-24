@@ -15,7 +15,6 @@ if not API_KEY:
 BASE_URL = "https://api.twelvedata.com/time_series"
 TD_SYMBOLS = {"EURUSD": "EUR/USD", "XAUUSD": "XAU/USD", "GBPUSD": "GBP/USD"}
 
-
 async def fetch_m5(symbol: str, limit: int = 1000) -> Optional[pd.DataFrame]:
     """Fetch CLOSED M5 candles from Twelve Data; one retry on timeout only."""
     params = {

@@ -8,7 +8,6 @@ import numpy as np
 from .base import EntryModule
 from ..core.pairs import buffer_price
 
-
 def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:
     """Calculate RSI indicator."""
     delta = prices.diff()
@@ -16,7 +15,6 @@ def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     rs = gain / loss
     return 100 - (100 / (1 + rs))
-
 
 def calculate_stochastic(high: pd.Series, low: pd.Series, close: pd.Series, 
                          k_period: int = 14, d_period: int = 3) -> tuple:
@@ -27,7 +25,6 @@ def calculate_stochastic(high: pd.Series, low: pd.Series, close: pd.Series,
     d = k.rolling(window=d_period).mean()
     return k, d
 
-
 def calculate_bollinger_bands(prices: pd.Series, period: int = 20, std_dev: float = 2.0) -> tuple:
     """Calculate Bollinger Bands (upper, middle, lower)."""
     middle = prices.rolling(window=period).mean()
@@ -35,7 +32,6 @@ def calculate_bollinger_bands(prices: pd.Series, period: int = 20, std_dev: floa
     upper = middle + (std * std_dev)
     lower = middle - (std * std_dev)
     return upper, middle, lower
-
 
 def calculate_macd(prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> tuple:
     """Calculate MACD line, signal line, and histogram."""
@@ -45,7 +41,6 @@ def calculate_macd(prices: pd.Series, fast: int = 12, slow: int = 26, signal: in
     signal_line = macd_line.ewm(span=signal, adjust=False).mean()
     histogram = macd_line - signal_line
     return macd_line, signal_line, histogram
-
 
 class IndicatorConfluence(EntryModule):
     name = "Indicator_Confluence"
