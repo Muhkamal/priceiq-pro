@@ -11,13 +11,15 @@ from ..core.pairs import get_spread
 from ..core.markets import get_profile
 from ..engine.journal import ExpectancyJournal
 from ..engine.alerts import MIN_RR_TO_DOL
+from ..core.data_quality import validate_m5
 from ..entries.choch_no_idm import ChoChNoIDM
 from ..entries.scm import SingleCandleMitigation
 from ..entries.double_bos import DoubleBreakout
 from ..entries.choch_idm import ChoChIDM
+from ..entries.range_sweep_fade import RangeSweepFade
 from ..entries.indicator_confluence import IndicatorConfluence
 
-MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM, "indicator_confluence": IndicatorConfluence}
+MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM, "indicator_confluence": IndicatorConfluence, "range_sweep_fade": RangeSweepFade}
 M15_WINDOW = 500
 
 class BacktestEngine:
@@ -37,7 +39,8 @@ class BacktestEngine:
             "wrong_side": 0,
             "signals": 0,
             "pattern_raw_bull": 0,
-            "pattern_raw_bear": 0
+            "pattern_raw_bear": 0,
+            "dq_skip": 0
         }
         self.module_signals = {}
         self.module_fired = {}
@@ -123,6 +126,14 @@ class BacktestEngine:
                 if c0["high"] > c1["high"] and c0["close"] < c2["low"]:
                     self.gate_counts["pattern_raw_bear"] += 1
             
+            # Data-quality parity with live: live scan_pair skips the cycle when
+            # validate_m5 flags recent data; backtest must skip the bar the same
+            # way, or bad ticks become fake sweep-and-reject signals.
+            ok, _dq = validate_m5(df_m5.iloc[max(0, i - 100):i + 1], pair)
+            if not ok:
+                self.gate_counts["dq_skip"] += 1
+                continue
+
             # Module check
             signal = None
             for mod in modules:
