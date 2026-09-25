@@ -2,7 +2,7 @@ markets: [XAUUSD, EURUSD, V75]
 context_tf: M15
 trigger_tf: M5
 conditions:
-  kill_zones: [[7, 10], [12, 15]]
+  kill_zones: [[0, 3], [7, 10], [12, 15]]
   require_displacement: false
   require_unmitigated_zone: true
   news_blackout_min: 0
