@@ -10,6 +10,7 @@ entry_modules:
   - choch_no_idm
   - scm
   - double_bos
+  - range_sweep_fade
 invalidation:
   stop_buffer_pts: 2
   time_stop_bars: 12
