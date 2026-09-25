@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 APP_ID = os.environ.get("DERIV_APP_ID", "1089")
 TOKEN = os.environ.get("DERIV_API_TOKEN", "")
-WS_URL = f"wss://ws.binaryws.com/websockets/v3?app_id={APP_ID}"
+WS_URL = f"wss://ws.derivws.com/websockets/v3?app_id={APP_ID}"
 
 class DerivWebSocket:
     """Lazy WebSocket connection."""
