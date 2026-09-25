@@ -1,35 +1,1 @@
 COMPILE_OK
-[main f84b5c5] Remove stacked duplicate lines (patch-era corruption)
- 9 files changed, 49 insertions(+), 21 deletions(-)
- create mode 100644 night_log.txt
- create mode 100644 night_pipeline.sh
-[1;33mThank you for using SmartMoneyConcepts! ⭐ Please show your support by giving a star on the GitHub repository: [4;34mhttps://github.com/joshyattridge/smart-money-concepts[0m
-Backtesting 29384 bars: 2026-03-27 23:20:00+00:00 -> 2026-07-07 23:55:00+00:00  [db=/tmp/reg1.db]
-CONFIG: swing_length=5 target=next_swing
-Processing 29263 bars (warmup=120)...Processing 29263 bars: 17% (4880/29263)Processing 29263 bars: 34% (9880/29263)Processing 29263 bars: 51% (14880/29263)Processing 29263 bars: 68% (19880/29263)Processing 29263 bars: 85% (24880/29263)Processing complete. Finalizing trades... done.
-
-=== GATE SKIP COUNTERS ===
-  fired[CHoCH_No_IDM]:      2
-  passed[CHoCH_No_IDM]:      1
-  fired[Double_BOS]:    151
-  passed[Double_BOS]:     37
-  total_bars     :  29263
-  ctx_none       :      0
-  dol_none       :    252
-  zone_gate      :  16665
-  kill_zone      :      0
-  module_miss    :  12445
-  rr_skip        :    107
-  wrong_side     :      8
-  signals        :    153
-  pattern_raw_bull:    442
-  pattern_raw_bear:    464
-
-
-=== EXPECTANCY: V75 ===
-Double_BOS: n=37 W/L/T=22/15/0 WR=59% exp=+0.29R PF=1.83 total=+10.8R
-
-MAE  min/median: -6.21 / -0.60 R
-MFE  median/max: 0.84 / 3.08 R
-Trades that reached 4R but did not end WIN: 0
-GATE1 PASS: dedup behavior-neutral
