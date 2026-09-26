@@ -52,11 +52,13 @@ class RandomControl(EntryModule):
     name = "RandomControl"
 
     def __init__(self, seed: int = FROZEN_SEED, fire_prob: float = FROZEN_FIRE_PROB,
-                 rr: float = FROZEN_RR, atr_lookback: int = ATR_LOOKBACK):
+                 rr: float = FROZEN_RR, atr_lookback: int = ATR_LOOKBACK,
+                 atr_mult: float = 1.0):
         self.rng = random.Random(seed)
         self.fire_prob = fire_prob
         self.rr = rr
         self.atr_lookback = atr_lookback
+        self.atr_mult = atr_mult  # exp-CTRL-2 grid; does NOT affect RNG draws
         self._seed_used = seed  # recorded so the ledger entry can quote it verbatim
 
     def _atr(self, df: pd.DataFrame) -> Optional[float]:
@@ -102,12 +104,13 @@ class RandomControl(EntryModule):
         spread = get_spread(ctx.pair) or 0.0
         cost = 1.25 * spread
         ref_price = close + cost if direction == "BUY" else close - cost
+        dist = self.atr_mult * atr
         if direction == "BUY":
-            sl = ref_price - atr
-            tp = ref_price + self.rr * atr
+            sl = ref_price - dist
+            tp = ref_price + self.rr * dist
         else:
-            sl = ref_price + atr
-            tp = ref_price - self.rr * atr
+            sl = ref_price + dist
+            tp = ref_price - self.rr * dist
 
         return {
             "module": self.name,

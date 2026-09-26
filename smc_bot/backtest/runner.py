@@ -374,6 +374,9 @@ if __name__ == "__main__":
                     help="Run ONLY the frozen RandomControl module (ignores "
                          "system.yaml entry_modules entirely) to establish the "
                          "null-hypothesis baseline this pair/window must beat.")
+    ap.add_argument("--control-atr-mult", type=float, default=1.0,
+                    help="RandomControl stop-width multiplier (exp-CTRL-2 grid: "
+                         "0.5 / 1.0 / 2.0 / 3.0). Does not affect RNG stream.")
     ap.add_argument("--permute", action="store_true",
                     help="For every real module signal that passes, also create one "
                          "shadow trade with direction drawn from a seeded fair coin "
@@ -408,9 +411,10 @@ if __name__ == "__main__":
         modules_override = None
         if args.control:
             print(f"*** CONTROL MODE: only RandomControl(seed={args.control_seed}, "
-                  f"fire_prob={FROZEN_FIRE_PROB}) runs. entry_modules from system.yaml "
-                  f"is ignored for this run. ***")
-            modules_override = [RandomControl(seed=args.control_seed)]
+                  f"fire_prob={FROZEN_FIRE_PROB}, atr_mult={args.control_atr_mult}) runs. "
+                  f"entry_modules from system.yaml is ignored for this run. ***")
+            modules_override = [RandomControl(seed=args.control_seed,
+                                              atr_mult=args.control_atr_mult)]
         engine = BacktestEngine(journal, config)
         if args.permute and not args.control:
             perm_db = args.perm_db or (db_path + ".perm.db")
