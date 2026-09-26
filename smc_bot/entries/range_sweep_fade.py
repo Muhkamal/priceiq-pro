@@ -33,9 +33,9 @@ class RangeSweepFade(EntryModule):
             return None
         if not ctx.in_kill_zone:
             return None
-        # Regime: ranging per the engine (no active draw on liquidity)
-        if ctx.dol is not None:
-            return None
+        # exp-007: dol=None regime gate removed - sweep events generate DOL in
+        # the M15 engine, so the gate rejected exactly the bars we trade. The
+        # sweep-reject close-back-inside IS the ranging signal.
         try:
             pdh, pdl, eq = float(ctx.pdh), float(ctx.pdl), float(ctx.equilibrium)
         except (TypeError, ValueError):
