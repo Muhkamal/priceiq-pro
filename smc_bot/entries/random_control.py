@@ -40,6 +40,7 @@ import random
 from typing import Optional
 import pandas as pd
 from .base import EntryModule
+from ..core.pairs import get_spread
 
 FROZEN_SEED = 20260926
 FROZEN_FIRE_PROB = 0.02
@@ -91,7 +92,16 @@ class RandomControl(EntryModule):
         if atr is None or atr <= 0:
             return None
 
-        ref_price = float(df.iloc[-1]["close"])
+        # Build SL/TP off the COST-ADJUSTED effective entry so the runner's
+        # RR>=2.0 gate is satisfied by construction (frozen spec intent).
+        # The runner enters at next_open +/- 1.25*spread; using the same
+        # adjustment here keeps post-cost RR at exactly FROZEN_RR for a
+        # typical open==close bar, instead of nominal-RR-minus-cost-erosion
+        # (which always fails the gate when nominal RR == gate RR).
+        close = float(df.iloc[-1]["close"])
+        spread = get_spread(ctx.pair) or 0.0
+        cost = 1.25 * spread
+        ref_price = close + cost if direction == "BUY" else close - cost
         if direction == "BUY":
             sl = ref_price - atr
             tp = ref_price + self.rr * atr
