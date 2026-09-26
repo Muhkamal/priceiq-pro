@@ -9,17 +9,21 @@ from ..config import load_config
 from ..core.context import ContextEngine
 from ..core.pairs import get_spread
 from ..core.markets import get_profile
-from ..engine.journal import ExpectancyJournal
-from ..engine.alerts import MIN_RR_TO_DOL
 from ..core.data_quality import validate_m5
+from ..engine.journal import ExpectancyJournal, MIN_TRADES_FOR_STATS, BOOTSTRAP_RESAMPLES
+from ..engine.alerts import MIN_RR_TO_DOL
 from ..entries.choch_no_idm import ChoChNoIDM
 from ..entries.scm import SingleCandleMitigation
 from ..entries.double_bos import DoubleBreakout
 from ..entries.choch_idm import ChoChIDM
-from ..entries.range_sweep_fade import RangeSweepFade
 from ..entries.indicator_confluence import IndicatorConfluence
+from ..entries.random_control import RandomControl, FROZEN_SEED, FROZEN_FIRE_PROB
 
-MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM, "indicator_confluence": IndicatorConfluence, "range_sweep_fade": RangeSweepFade}
+MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM, "indicator_confluence": IndicatorConfluence}
+# RandomControl is intentionally absent from MODULE_REGISTRY: it must never be
+# addable via system.yaml's entry_modules list (backtest or live). It is only
+# ever run via the --control CLI flag below, which swaps the module list
+# entirely for the duration of that one run.
 M15_WINDOW = 500
 
 class BacktestEngine:
@@ -40,12 +44,12 @@ class BacktestEngine:
             "signals": 0,
             "pattern_raw_bull": 0,
             "pattern_raw_bear": 0,
-            "dq_skip": 0
+            "dq_skip": 0,
         }
         self.module_signals = {}
         self.module_fired = {}
 
-    def run(self, df_m5, pair: str):
+    def run(self, df_m5, pair: str, modules_override=None):
         if not isinstance(df_m5.index, pd.DatetimeIndex):
             raise ValueError("df_m5 must have a DatetimeIndex")
         
@@ -62,7 +66,10 @@ class BacktestEngine:
         
         ctx_engine = ContextEngine(swing_length=self.config.params.swing_length,
                                    kill_zones_utc=self.config.conditions.kill_zones)
-        modules = [MODULE_REGISTRY[n]() for n in self.config.entry_modules if n in MODULE_REGISTRY]
+        if modules_override is not None:
+            modules = modules_override
+        else:
+            modules = [MODULE_REGISTRY[n]() for n in self.config.entry_modules if n in MODULE_REGISTRY]
         warmup = max(120, self.config.params.swing_length * 12)
         
         j = 0
@@ -128,12 +135,12 @@ class BacktestEngine:
             
             # Data-quality parity with live: live scan_pair skips the cycle when
             # validate_m5 flags recent data; backtest must skip the bar the same
-            # way, or bad ticks become fake sweep-and-reject signals.
+            # way, or bad ticks become fake signals (esp. sweep-and-reject shapes).
             ok, _dq = validate_m5(df_m5.iloc[max(0, i - 100):i + 1], pair)
             if not ok:
                 self.gate_counts["dq_skip"] += 1
                 continue
-
+            
             # Module check
             signal = None
             for mod in modules:
@@ -330,6 +337,20 @@ if __name__ == "__main__":
                     default=None, help="Override continuation_target for this run")
     ap.add_argument("--verify", action="store_true",
                     help="Run twice on temp DBs, assert identical trade counts")
+    ap.add_argument("--compare-control-db", default=None,
+                    help="Path to a DB produced by a --control run on the SAME "
+                         "pair/window. If given, the report shows each real "
+                         "module's bootstrap CI against the control's, and "
+                         "flags whether the real module clears the control's "
+                         "95th-percentile bound - the MHC gate.")
+    ap.add_argument("--control", action="store_true",
+                    help="Run ONLY the frozen RandomControl module (ignores "
+                         "system.yaml entry_modules entirely) to establish the "
+                         "null-hypothesis baseline this pair/window must beat.")
+    ap.add_argument("--control-seed", type=int, default=FROZEN_SEED,
+                    help=f"Seed for --control (default {FROZEN_SEED}, the frozen "
+                         "spec). Only change this to register a NEW control spec "
+                         "as its own ledger entry - never to re-roll a result.")
     args = ap.parse_args()
     config = load_config()
     if args.target:
@@ -349,16 +370,43 @@ if __name__ == "__main__":
         print(f"Backtesting {len(df)} bars: {df.index[0]} -> {df.index[-1]}  [db={db_path}]")
         print(f"CONFIG: swing_length={config.params.swing_length} target={config.params.continuation_target}")
         print(f"COST: spread(full,at-entry)=2xhalf + slippage=25% -> model charges 1.25x spread")
+        modules_override = None
+        if args.control:
+            print(f"*** CONTROL MODE: only RandomControl(seed={args.control_seed}, "
+                  f"fire_prob={FROZEN_FIRE_PROB}) runs. entry_modules from system.yaml "
+                  f"is ignored for this run. ***")
+            modules_override = [RandomControl(seed=args.control_seed)]
         engine = BacktestEngine(journal, config)
-        return engine.run(df, args.pair)
+        return engine.run(df, args.pair, modules_override=modules_override)
 
-    def _report(stats, pair):
+    def _report(stats, pair, db_path):
         print(f"\n=== EXPECTANCY: {pair} ===")
         if not stats:
             print("No module reached 30 closed trades yet.")
+        journal_for_ci = ExpectancyJournal(db_path=db_path)
+        control_ci = None
+        if args.compare_control_db:
+            control_journal = ExpectancyJournal(db_path=args.compare_control_db)
+            control_ci = control_journal.get_expectancy_bootstrap_ci(RandomControl.name)
+            if control_ci is None:
+                print(f"WARNING: --compare-control-db has no closed RandomControl "
+                      f"trades - MHC comparison skipped.")
+            else:
+                print(f"\nCONTROL (from {args.compare_control_db}): "
+                      f"n={control_ci['n']} exp={control_ci['expectancy_r']:+.3f}R "
+                      f"[{control_ci['lo_pct']}%={control_ci['ci_lo']:+.3f}R, "
+                      f"{control_ci['hi_pct']}%={control_ci['ci_hi']:+.3f}R]")
         for m, s in stats.items():
             print(f"{m}: n={s['n']} W/L/T={s['wins']}/{s['losses']}/{s['timeouts']} "
                   f"WR={s['win_rate']:.0%} exp={s['expectancy_r']:+.2f}R PF={s['profit_factor']:.2f} total={s['total_r']:+.1f}R")
+            ci = journal_for_ci.get_expectancy_bootstrap_ci(m)
+            if ci:
+                print(f"    bootstrap CI: [{ci['lo_pct']}%={ci['ci_lo']:+.3f}R, "
+                      f"{ci['hi_pct']}%={ci['ci_hi']:+.3f}R] (n_resamples={BOOTSTRAP_RESAMPLES})")
+            if control_ci is not None and ci:
+                beats = ci['expectancy_r'] > control_ci['ci_hi'] and s['n'] >= MIN_TRADES_FOR_STATS
+                verdict = "CLEARS control 95th pct" if beats else "does NOT clear control - discount this result"
+                print(f"    MHC gate: {verdict}")
 
     if args.verify:
         import tempfile, os, sqlite3
@@ -375,7 +423,7 @@ if __name__ == "__main__":
                 conn.close()
                 return c
 
-            n1, n2 = _counts(d1), _counts(d2)   # raw journal rows: non-vacuous
+            n1, n2 = _counts(d1), _counts(d2)
 
         total = sum(n1.values())
         if n1 == n2:
@@ -385,8 +433,8 @@ if __name__ == "__main__":
         else:
             print(f"\nREPRODUCIBILITY FAILED: run1={n1} run2={n2}")
             raise SystemExit(2)
-        _report(s1, args.pair)
+        _report(s1, args.pair, d1)
     else:
         stats = _one_run(args.db)
-        _report(stats, args.pair)
+        _report(stats, args.pair, args.db)
         _print_mae_mfe(ExpectancyJournal(db_path=args.db))

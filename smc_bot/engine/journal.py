@@ -1,5 +1,7 @@
 import sqlite3
 import logging
+import random
+import statistics
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 
@@ -9,6 +11,8 @@ VALID_OUTCOMES = {"WIN", "LOSS", "BREAKEVEN", "TIMEOUT", "SKIPPED"}
 VALID_EXIT_REASONS = {"DOL", "PARTIAL_4R", "PARTIAL_10R", "SL", "TIME_STOP", "MANUAL", "RR_GATE"}
 MIN_TRADES_FOR_STATS = 30
 KILL_DECISION_MIN_TRADES = 100
+BOOTSTRAP_RESAMPLES = 2000
+BOOTSTRAP_SEED = 12345  # fixed: CI must be reproducible run-to-run, not re-randomized
 
 class ExpectancyJournal:
     def __init__(self, db_path: str = "smc_journal.db"):
@@ -173,6 +177,39 @@ class ExpectancyJournal:
                 "timeouts": timeouts, "breakevens": breakevens,
                 "win_rate": win_rate, "avg_win_r": avg_win, "avg_loss_r": avg_loss,
                 "expectancy_r": expectancy, "profit_factor": pf, "total_r": sum(pnls)}
+
+    def get_expectancy_bootstrap_ci(self, module, lo_pct=5, hi_pct=95,
+                                     n_resamples=BOOTSTRAP_RESAMPLES):
+        """Percentile bootstrap CI on expectancy (mean R per trade) for one
+        module. Returns None if fewer than 2 closed trades exist. Works below
+        MIN_TRADES_FOR_STATS on purpose so a thin sample's CI can still be
+        inspected (the width itself is the useful signal for small n).
+        Fixed seed: re-running the same DB produces the same CI."""
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT pnl_r FROM trades
+            WHERE module=? AND outcome IS NOT NULL AND outcome != 'SKIPPED'
+        """, (module,))
+        pnls = [r[0] for r in cur.fetchall()]
+        conn.close()
+        n = len(pnls)
+        if n < 2:
+            return None
+        rng = random.Random(BOOTSTRAP_SEED)
+        means = []
+        for _ in range(n_resamples):
+            sample = [pnls[rng.randrange(n)] for _ in range(n)]
+            means.append(sum(sample) / n)
+        means.sort()
+        lo_idx = max(0, int(round(lo_pct / 100 * (n_resamples - 1))))
+        hi_idx = min(n_resamples - 1, int(round(hi_pct / 100 * (n_resamples - 1))))
+        return {
+            "module": module, "n": n,
+            "expectancy_r": statistics.mean(pnls),
+            "ci_lo": means[lo_idx], "ci_hi": means[hi_idx],
+            "lo_pct": lo_pct, "hi_pct": hi_pct,
+        }
 
     def get_all_modules_expectancy(self):
         conn = sqlite3.connect(self.db_path)
