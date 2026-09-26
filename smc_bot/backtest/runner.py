@@ -1,5 +1,6 @@
 """Event-driven M5 backtest with gate skip counters and progress tracking."""
 import argparse
+import random
 import statistics
 import pandas as pd
 from typing import Dict, List, Any
@@ -181,7 +182,8 @@ class BacktestEngine:
             row_id = self.journal.log_signal(signal, timestamp_override=ts)
             if row_id:
                 self.active_trades.append({
-                    "row_id": row_id, "pair": pair, "module": signal["module"],
+                    "row_id": row_id, "journal": self.journal,
+                    "pair": pair, "module": signal["module"],
                     "direction": direction, "entry": entry, "sl": sl, "tp": tp,
                     "risk": risk, "entry_bar_idx": i + 1,
                     "slices": [
@@ -191,6 +193,31 @@ class BacktestEngine:
                     ],
                     "mae_r": 0.0, "mfe_r": 0.0,
                 })
+                if getattr(self, "perm_journal", None) is not None:
+                    sdir = "BUY" if self.perm_rng.random() < 0.5 else "SELL"
+                    se = next_open + 1.25 * spread if sdir == "BUY" else next_open - 1.25 * spread
+                    d_sl, d_tp = abs(entry - sl), abs(tp - entry)
+                    if sdir == "BUY":
+                        ssl, stp = se - d_sl, se + d_tp
+                    else:
+                        ssl, stp = se + d_sl, se - d_tp
+                    ssig = {"module": signal["module"] + "_PERM", "direction": sdir,
+                            "ref_price": se, "sl": ssl, "tp": stp, "rr_to_dol": rr,
+                            "pair": pair, "ctx": signal["ctx"]}
+                    srow = self.perm_journal.log_signal(ssig, timestamp_override=ts)
+                    if srow:
+                        self.active_trades.append({
+                            "row_id": srow, "journal": self.perm_journal,
+                            "pair": pair, "module": signal["module"] + "_PERM",
+                            "direction": sdir, "entry": se, "sl": ssl, "tp": stp,
+                            "risk": d_sl, "entry_bar_idx": i + 1,
+                            "slices": [
+                                {"size": 0.20, "target_r": 4.0, "status": "open", "realized_r": 0.0},
+                                {"size": 0.30, "target_r": 10.0, "status": "open", "realized_r": 0.0},
+                                {"size": 0.50, "target_r": None, "status": "open", "realized_r": 0.0},
+                            ],
+                            "mae_r": 0.0, "mfe_r": 0.0,
+                        })
         
         print("\rProcessing complete. Finalizing trades...", end='', flush=True)
         self._force_close_all(df_m5.iloc[-1], len(df_m5) - 1)
@@ -283,7 +310,7 @@ class BacktestEngine:
     def _finalize(self, tr, exit_reason, bars_held):
         total_r = sum(s["size"] * s["realized_r"] for s in tr["slices"])
         outcome = "WIN" if total_r > 0.01 else "LOSS" if total_r < -0.01 else "BREAKEVEN"
-        self.journal.update_trade_outcome(
+        tr["journal"].update_trade_outcome(
             tr["row_id"], outcome, total_r, exit_reason,
             mae_r=tr["mae_r"], mfe_r=tr["mfe_r"], bars_held=bars_held)
 
@@ -347,6 +374,14 @@ if __name__ == "__main__":
                     help="Run ONLY the frozen RandomControl module (ignores "
                          "system.yaml entry_modules entirely) to establish the "
                          "null-hypothesis baseline this pair/window must beat.")
+    ap.add_argument("--permute", action="store_true",
+                    help="For every real module signal that passes, also create one "
+                         "shadow trade with direction drawn from a seeded fair coin "
+                         "(exp-PERM spec: seed 20260927, distance-preserving mirror). "
+                         "Shadows go to --perm-db; real DB stays clean. Not allowed "
+                         "with --control.")
+    ap.add_argument("--perm-db", default=None,
+                    help="Shadow journal path (default: <db>.perm.db)")
     ap.add_argument("--control-seed", type=int, default=FROZEN_SEED,
                     help=f"Seed for --control (default {FROZEN_SEED}, the frozen "
                          "spec). Only change this to register a NEW control spec "
@@ -377,7 +412,15 @@ if __name__ == "__main__":
                   f"is ignored for this run. ***")
             modules_override = [RandomControl(seed=args.control_seed)]
         engine = BacktestEngine(journal, config)
-        return engine.run(df, args.pair, modules_override=modules_override)
+        if args.permute and not args.control:
+            perm_db = args.perm_db or (db_path + ".perm.db")
+            perm_journal = ExpectancyJournal(db_path=perm_db)
+            if args.fresh or args.verify:
+                perm_journal.reset()
+            engine.perm_journal = perm_journal
+            engine.perm_rng = random.Random(20260927)  # frozen in exp-PERM
+        stats = engine.run(df, args.pair, modules_override=modules_override)
+        return stats, engine
 
     def _report(stats, pair, db_path):
         print(f"\n=== EXPECTANCY: {pair} ===")
@@ -413,8 +456,8 @@ if __name__ == "__main__":
         with tempfile.TemporaryDirectory() as tmp:
             d1 = os.path.join(tmp, "r1.db")
             d2 = os.path.join(tmp, "r2.db")
-            s1 = _one_run(d1)
-            s2 = _one_run(d2)
+            s1, _e1 = _one_run(d1)
+            s2, _e2 = _one_run(d2)
 
             def _counts(db):
                 conn = sqlite3.connect(db)
@@ -435,6 +478,14 @@ if __name__ == "__main__":
             raise SystemExit(2)
         _report(s1, args.pair, d1)
     else:
-        stats = _one_run(args.db)
+        stats, engine = _one_run(args.db)
         _report(stats, args.pair, args.db)
         _print_mae_mfe(ExpectancyJournal(db_path=args.db))
+        pj = getattr(engine, "perm_journal", None)
+        if pj is not None:
+            print("\n=== PERMUTATION SHADOW (skill null, exp-PERM) ===")
+            for m, s in pj.get_all_modules_expectancy().items():
+                print(f"{m}: n={s['n']} exp={s['expectancy_r']:+.2f}R PF={s['profit_factor']:.2f}")
+                ci = pj.get_expectancy_bootstrap_ci(m)
+                if ci:
+                    print(f"    shadow 95th-pct bound (skill bar): {ci['ci_hi']:+.3f}R")
