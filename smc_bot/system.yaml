@@ -10,7 +10,7 @@ entry_modules:
   - choch_no_idm
   - scm
   - double_bos
-  - range_sweep_fade
+  - range_sweep_fade  # BACKTEST-ONLY: absent from main.py MODULE_REGISTRY by design; do not add to live registry without OOS validation
 invalidation:
   stop_buffer_pts: 2
   time_stop_bars: 12
