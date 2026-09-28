@@ -455,6 +455,23 @@ if __name__ == "__main__":
                 verdict = "CLEARS control 95th pct" if beats else "does NOT clear control - discount this result"
                 print(f"    MHC gate: {verdict}")
 
+        # --- below-gate reporter: every module with n>=1 gets its real numbers ---
+        # (reporter-gap fix exp-007-corr-2: hiding exp below the gate selected for overclaim)
+        import sqlite3 as _sq
+        _c = _sq.connect(db_path)
+        _rows = _c.execute("""
+            SELECT module, COUNT(*),
+                   SUM(CASE WHEN pnl_r > 0 THEN 1 ELSE 0 END),
+                   AVG(pnl_r)
+            FROM trades WHERE outcome IS NOT NULL AND outcome != 'SKIPPED'
+            GROUP BY module""").fetchall()
+        _c.close()
+        _below = [r for r in _rows if r[1] < MIN_TRADES_FOR_STATS]
+        if _below:
+            print("\n=== BELOW-GATE MODULES (n<30 - descriptive only, NO verdict) ===")
+            for m, n, w, exp in sorted(_below, key=lambda r: -r[1]):
+                print(f"{m}: n={n} W/L={w}/{n-w} WR={100*w/n:.0f}% exp={exp:+.3f}R  [below 30-trade gate]")
+
     if args.verify:
         import tempfile, os, sqlite3
         with tempfile.TemporaryDirectory() as tmp:
