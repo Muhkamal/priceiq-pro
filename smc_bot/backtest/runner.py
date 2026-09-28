@@ -488,8 +488,12 @@ if __name__ == "__main__":
         pj = getattr(engine, "perm_journal", None)
         if pj is not None:
             print("\n=== PERMUTATION SHADOW (skill null, exp-PERM) ===")
-            for m, s in pj.get_all_modules_expectancy().items():
-                print(f"{m}: n={s['n']} exp={s['expectancy_r']:+.2f}R PF={s['profit_factor']:.2f}")
+            import sqlite3 as _sq
+            _c = _sq.connect(pj.db_path)
+            _mods = [r[0] for r in _c.execute("SELECT DISTINCT module FROM trades").fetchall()]
+            _c.close()
+            for m in _mods:
                 ci = pj.get_expectancy_bootstrap_ci(m)
                 if ci:
-                    print(f"    shadow 95th-pct bound (skill bar): {ci['ci_hi']:+.3f}R")
+                    print(f"{m}: n={ci['n']} exp={ci['expectancy_r']:+.2f}R "
+                          f"shadow 95th-pct bound (skill bar): {ci['ci_hi']:+.3f}R")
