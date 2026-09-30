@@ -19,8 +19,9 @@ from ..entries.double_bos import DoubleBreakout
 from ..entries.choch_idm import ChoChIDM
 from ..entries.indicator_confluence import IndicatorConfluence
 from ..entries.random_control import RandomControl, FROZEN_SEED, FROZEN_FIRE_PROB
+from ..entries.orb import OpeningRangeBreakout
 
-MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM, "indicator_confluence": IndicatorConfluence}
+MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM, "indicator_confluence": IndicatorConfluence, "orb": OpeningRangeBreakout}
 # RandomControl is intentionally absent from MODULE_REGISTRY: it must never be
 # addable via system.yaml's entry_modules list (backtest or live). It is only
 # ever run via the --control CLI flag below, which swaps the module list
@@ -377,6 +378,8 @@ if __name__ == "__main__":
     ap.add_argument("--control-atr-mult", type=float, default=1.0,
                     help="RandomControl stop-width multiplier (exp-CTRL-2 grid: "
                          "0.5 / 1.0 / 2.0 / 3.0). Does not affect RNG stream.")
+    ap.add_argument("--modules", default=None,
+                    help="comma-separated entry_modules override - isolated single-module runs without touching system.yaml")
     ap.add_argument("--permute", action="store_true",
                     help="For every real module signal that passes, also create one "
                          "shadow trade with direction drawn from a seeded fair coin "
@@ -393,6 +396,8 @@ if __name__ == "__main__":
     config = load_config()
     if args.target:
         config.params.continuation_target = args.target
+    if args.modules:
+        config.entry_modules = [s.strip() for s in args.modules.split(",")]
 
     def _one_run(db_path):
         journal = ExpectancyJournal(db_path=db_path)
