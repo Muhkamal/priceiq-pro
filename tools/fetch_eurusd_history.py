@@ -1,4 +1,4 @@
-"""Page OANDA v20 backwards for multi-year XAU_USD M5 -> data/XAUUSD_M5_LONG.csv
+"""Page OANDA v20 backwards for multi-year EUR_USD M5 -> data/EURUSD_M5_LONG.csv
 Requires OANDA_TOKEN (practice token) in env. Never paste the token anywhere.
 """
 import os, time, requests
@@ -7,8 +7,8 @@ import pandas as pd
 TOKEN = os.environ["OANDA_TOKEN"]
 ENV = "https://api-fxpractice.oanda.com"   # practice API host
 import sys
-INST = sys.argv[1] if len(sys.argv) > 1 else "XAU_USD"
-OUT_CSV = sys.argv[2] if len(sys.argv) > 2 else "data/XAUUSD_M5_LONG.csv"
+INST = sys.argv[1] if len(sys.argv) > 1 else "EUR_USD"
+OUT_CSV = sys.argv[2] if len(sys.argv) > 2 else "data/EURUSD_M5_LONG.csv"
 
 START = pd.Timestamp(sys.argv[3] if len(sys.argv) > 3 else "2023-01-01", tz="UTC")
 cur_to = pd.Timestamp("2026-06-30 23:55", tz="UTC")
@@ -45,4 +45,4 @@ m5 = m5[~m5.index.duplicated(keep="first")]
 m5 = m5[m5.index >= START]
 m5.index.name = "datetime"
 m5.to_csv(OUT_CSV)
-print(f"\nWROTE data/XAUUSD_M5_LONG.csv: {len(m5)} bars, {m5.index[0]} -> {m5.index[-1]}")
+print(f"\nWROTE data/EURUSD_M5_LONG.csv: {len(m5)} bars, {m5.index[0]} -> {m5.index[-1]}")
