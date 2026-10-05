@@ -20,8 +20,9 @@ from ..entries.choch_idm import ChoChIDM
 from ..entries.indicator_confluence import IndicatorConfluence
 from ..entries.random_control import RandomControl, FROZEN_SEED, FROZEN_FIRE_PROB
 from ..entries.orb import OpeningRangeBreakout
+from ..entries.tsmom import TSMomentum
 
-MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM, "indicator_confluence": IndicatorConfluence, "orb": OpeningRangeBreakout}
+MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM, "indicator_confluence": IndicatorConfluence, "orb": OpeningRangeBreakout, "tsmom": TSMomentum}
 # RandomControl is intentionally absent from MODULE_REGISTRY: it must never be
 # addable via system.yaml's entry_modules list (backtest or live). It is only
 # ever run via the --control CLI flag below, which swaps the module list
@@ -62,7 +63,8 @@ class BacktestEngine:
         prof = get_profile(pair)
         compute_poi = bool(self.config.conditions.require_unmitigated_zone)
         
-        df_m15 = df_m5.resample("15min").agg(
+        _rule = getattr(self, "ctx_rule", "15min")
+        df_m15 = df_m5.resample(_rule).agg(
             {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna()
         m15_idx = df_m15.index
         
@@ -79,7 +81,9 @@ class BacktestEngine:
         ctx = None
         
         total_bars = len(df_m5) - 1 - warmup
-        print(f"Processing {total_bars} bars (warmup={warmup})...", end='', flush=True)
+        _d = df_m5.index.to_series().diff().dropna()
+        self._bar_min = int(_d.median().total_seconds() / 60) if len(_d) else 5
+        print(f"Processing {total_bars} bars (warmup={warmup}, bar={self._bar_min}min, ctx={getattr(self, 'ctx_rule', '15min')})...", end='', flush=True)
         
         for i in range(warmup, len(df_m5) - 1):
             if i % 5000 == 0:
@@ -138,7 +142,8 @@ class BacktestEngine:
             # Data-quality parity with live: live scan_pair skips the cycle when
             # validate_m5 flags recent data; backtest must skip the bar the same
             # way, or bad ticks become fake signals (esp. sweep-and-reject shapes).
-            ok, _dq = validate_m5(df_m5.iloc[max(0, i - 100):i + 1], pair)
+            ok, _dq = validate_m5(df_m5.iloc[max(0, i - 100):i + 1], pair,
+                                  max_gap_min=35.0 * max(1.0, self._bar_min / 5.0))
             if not ok:
                 self.gate_counts["dq_skip"] += 1
                 continue
@@ -378,6 +383,10 @@ if __name__ == "__main__":
     ap.add_argument("--control-atr-mult", type=float, default=1.0,
                     help="RandomControl stop-width multiplier (exp-CTRL-2 grid: "
                          "0.5 / 1.0 / 2.0 / 3.0). Does not affect RNG stream.")
+    ap.add_argument("--context-tf", default="15min", choices=["15min", "1h", "4h"],
+                    help="Context resample rule (exp-011: 1h for TSMOM)")
+    ap.add_argument("--time-stop-bars", type=int, default=None,
+                    help="Override time_stop_bars (exp-011 H1: 240 = 10 days)")
     ap.add_argument("--modules", default=None,
                     help="comma-separated entry_modules override - isolated single-module runs without touching system.yaml")
     ap.add_argument("--permute", action="store_true",
@@ -421,6 +430,9 @@ if __name__ == "__main__":
             modules_override = [RandomControl(seed=args.control_seed,
                                               atr_mult=args.control_atr_mult)]
         engine = BacktestEngine(journal, config)
+        engine.ctx_rule = args.context_tf
+        if args.time_stop_bars:
+            config.invalidation.time_stop_bars = args.time_stop_bars
         if args.permute and not args.control:
             perm_db = args.perm_db or (db_path + ".perm.db")
             perm_journal = ExpectancyJournal(db_path=perm_db)
