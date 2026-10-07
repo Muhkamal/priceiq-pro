@@ -1,39 +1,0 @@
-[1;33mThank you for using SmartMoneyConcepts! ⭐ Please show your support by giving a star on the GitHub repository: [4;34mhttps://github.com/joshyattridge/smart-money-concepts[0m
-Backtesting 254502 bars: 2023-01-01 23:05:00+00:00 -> 2026-05-31 23:55:00+00:00  [db=bt_exp009_train.db]
-CONFIG: swing_length=5 target=next_swing
-COST: spread(full,at-entry)=2xhalf + slippage=25% -> model charges 1.25x spread
-Processing 254381 bars (warmup=120)...Processing 254381 bars: 2% (4880/254381)Processing 254381 bars: 4% (9880/254381)Processing 254381 bars: 6% (14880/254381)Processing 254381 bars: 8% (19880/254381)Processing 254381 bars: 10% (24880/254381)Processing 254381 bars: 12% (29880/254381)Processing 254381 bars: 14% (34880/254381)Processing 254381 bars: 16% (39880/254381)Processing 254381 bars: 18% (44880/254381)Processing 254381 bars: 20% (49880/254381)Processing 254381 bars: 22% (54880/254381)Processing 254381 bars: 24% (59880/254381)Processing 254381 bars: 26% (64880/254381)Processing 254381 bars: 27% (69880/254381)Processing 254381 bars: 29% (74880/254381)Processing 254381 bars: 31% (79880/254381)Processing 254381 bars: 33% (84880/254381)Processing 254381 bars: 35% (89880/254381)Processing 254381 bars: 37% (94880/254381)Processing 254381 bars: 39% (99880/254381)Processing 254381 bars: 41% (104880/254381)Processing 254381 bars: 43% (109880/254381)Processing 254381 bars: 45% (114880/254381)Processing 254381 bars: 47% (119880/254381)Processing 254381 bars: 49% (124880/254381)Processing 254381 bars: 51% (129880/254381)Processing 254381 bars: 53% (134880/254381)Processing 254381 bars: 55% (139880/254381)Processing 254381 bars: 57% (144880/254381)Processing 254381 bars: 59% (149880/254381)Processing 254381 bars: 61% (154880/254381)Processing 254381 bars: 63% (159880/254381)Processing 254381 bars: 65% (164880/254381)Processing 254381 bars: 67% (169880/254381)Processing 254381 bars: 69% (174880/254381)Processing 254381 bars: 71% (179880/254381)Processing 254381 bars: 73% (184880/254381)Processing 254381 bars: 75% (189880/254381)Processing 254381 bars: 77% (194880/254381)Processing 254381 bars: 79% (199880/254381)Processing 254381 bars: 81% (204880/254381)Processing 254381 bars: 83% (209880/254381)Processing 254381 bars: 84% (214880/254381)Processing 254381 bars: 86% (219880/254381)Processing 254381 bars: 88% (224880/254381)Processing 254381 bars: 90% (229880/254381)Processing 254381 bars: 92% (234880/254381)Processing 254381 bars: 94% (239880/254381)Processing 254381 bars: 96% (244880/254381)Processing 254381 bars: 98% (249880/254381)Processing complete. Finalizing trades... done.
-
-=== GATE SKIP COUNTERS ===
-  fired[CHoCH_No_IDM]:     18
-  passed[CHoCH_No_IDM]:      0
-  fired[Double_BOS]:    503
-  passed[Double_BOS]:     22
-  fired[SCM]     :     15
-  passed[SCM]    :      0
-  total_bars     : 254381
-  ctx_none       :     42
-  dol_none       :  19671
-  zone_gate      : 137250
-  kill_zone      :  74969
-  module_miss    :  38322
-  rr_skip        :    417
-  wrong_side     :     97
-  signals        :    536
-  pattern_raw_bull:   1316
-  pattern_raw_bear:   1310
-  dq_skip        :   3262
-
-
-=== EXPECTANCY: EURUSD ===
-No module reached 30 closed trades yet.
-
-=== BELOW-GATE MODULES (n<30 - descriptive only, NO verdict) ===
-Double_BOS: n=22 W/L=7/15 WR=32% exp=-0.156R  [below 30-trade gate]
-
-MAE  min/median: -4.11 / -1.00 R
-MFE  median/max: 0.67 / 5.44 R
-Trades that reached 4R but did not end WIN: 1
-
-=== PERMUTATION SHADOW (skill null, exp-PERM) ===
-Double_BOS_PERM: n=22 exp=-0.02R shadow 95th-pct bound (skill bar): +0.406R

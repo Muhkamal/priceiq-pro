@@ -22,3 +22,6 @@ economic_calendar_cache.json
 # Killed modules (research only)
 # smc_bot/entries/indicator_confluence.py
 data/*_M5_10Y.csv
+*.log
+*.db
+*.db.perm.db

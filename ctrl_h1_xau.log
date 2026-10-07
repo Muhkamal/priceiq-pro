@@ -1,33 +1,0 @@
-[1;33mThank you for using SmartMoneyConcepts! ⭐ Please show your support by giving a star on the GitHub repository: [4;34mhttps://github.com/joshyattridge/smart-money-concepts[0m
-Backtesting 61521 bars: 2016-01-01 13:00:00+00:00 -> 2026-05-31 23:00:00+00:00  [db=ctrl_h1_xau.db]
-CONFIG: swing_length=5 target=next_swing
-COST: spread(full,at-entry)=2xhalf + slippage=25% -> model charges 1.25x spread
-*** CONTROL MODE: only RandomControl(seed=20260926, fire_prob=0.02, atr_mult=1.0) runs. entry_modules from system.yaml is ignored for this run. ***
-Processing 61400 bars (warmup=120, bar=60min, ctx=1h)...Processing 61400 bars: 8% (4880/61400)Processing 61400 bars: 16% (9880/61400)Processing 61400 bars: 24% (14880/61400)Processing 61400 bars: 32% (19880/61400)Processing 61400 bars: 41% (24880/61400)Processing 61400 bars: 49% (29880/61400)Processing 61400 bars: 57% (34880/61400)Processing 61400 bars: 65% (39880/61400)Processing 61400 bars: 73% (44880/61400)Processing 61400 bars: 81% (49880/61400)Processing 61400 bars: 89% (54880/61400)Processing 61400 bars: 98% (59880/61400)Processing complete. Finalizing trades... done.
-
-=== GATE SKIP COUNTERS ===
-  fired[RandomControl]:     24
-  passed[RandomControl]:     12
-  total_bars     :  61400
-  ctx_none       :      0
-  dol_none       :   2960
-  zone_gate      :  33949
-  kill_zone      :  16601
-  module_miss    :   1229
-  rr_skip        :     12
-  wrong_side     :      0
-  signals        :     24
-  pattern_raw_bull:    598
-  pattern_raw_bear:    535
-  dq_skip        :   9597
-
-
-=== EXPECTANCY: XAUUSD ===
-No module reached 30 closed trades yet.
-
-=== BELOW-GATE MODULES (n<30 - descriptive only, NO verdict) ===
-RandomControl: n=12 W/L=4/8 WR=33% exp=-0.109R  [below 30-trade gate]
-
-MAE  min/median: -3.86 / -1.29 R
-MFE  median/max: 1.50 / 2.57 R
-Trades that reached 4R but did not end WIN: 0

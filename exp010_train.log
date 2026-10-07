@@ -1,33 +1,0 @@
-[1;33mThank you for using SmartMoneyConcepts! ⭐ Please show your support by giving a star on the GitHub repository: [4;34mhttps://github.com/joshyattridge/smart-money-concepts[0m
-Backtesting 241677 bars: 2023-01-02 23:00:00+00:00 -> 2026-05-31 23:55:00+00:00  [db=bt_exp010_train.db]
-CONFIG: swing_length=5 target=next_swing
-COST: spread(full,at-entry)=2xhalf + slippage=25% -> model charges 1.25x spread
-Processing 241556 bars (warmup=120)...Processing 241556 bars: 2% (4880/241556)Processing 241556 bars: 4% (9880/241556)Processing 241556 bars: 6% (14880/241556)Processing 241556 bars: 8% (19880/241556)Processing 241556 bars: 10% (24880/241556)Processing 241556 bars: 12% (29880/241556)Processing 241556 bars: 14% (34880/241556)Processing 241556 bars: 17% (39880/241556)Processing 241556 bars: 19% (44880/241556)Processing 241556 bars: 21% (49880/241556)Processing 241556 bars: 23% (54880/241556)Processing 241556 bars: 25% (59880/241556)Processing 241556 bars: 27% (64880/241556)Processing 241556 bars: 29% (69880/241556)Processing 241556 bars: 31% (74880/241556)Processing 241556 bars: 33% (79880/241556)Processing 241556 bars: 35% (84880/241556)Processing 241556 bars: 37% (89880/241556)Processing 241556 bars: 39% (94880/241556)Processing 241556 bars: 41% (99880/241556)Processing 241556 bars: 43% (104880/241556)Processing 241556 bars: 45% (109880/241556)Processing 241556 bars: 48% (114880/241556)Processing 241556 bars: 50% (119880/241556)Processing 241556 bars: 52% (124880/241556)Processing 241556 bars: 54% (129880/241556)Processing 241556 bars: 56% (134880/241556)Processing 241556 bars: 58% (139880/241556)Processing 241556 bars: 60% (144880/241556)Processing 241556 bars: 62% (149880/241556)Processing 241556 bars: 64% (154880/241556)Processing 241556 bars: 66% (159880/241556)Processing 241556 bars: 68% (164880/241556)Processing 241556 bars: 70% (169880/241556)Processing 241556 bars: 72% (174880/241556)Processing 241556 bars: 74% (179880/241556)Processing 241556 bars: 77% (184880/241556)Processing 241556 bars: 79% (189880/241556)Processing 241556 bars: 81% (194880/241556)Processing 241556 bars: 83% (199880/241556)Processing 241556 bars: 85% (204880/241556)Processing 241556 bars: 87% (209880/241556)Processing 241556 bars: 89% (214880/241556)Processing 241556 bars: 91% (219880/241556)Processing 241556 bars: 93% (224880/241556)Processing 241556 bars: 95% (229880/241556)Processing 241556 bars: 97% (234880/241556)Processing 241556 bars: 99% (239880/241556)Processing complete. Finalizing trades... done.
-
-=== GATE SKIP COUNTERS ===
-  fired[ORB]     :    862
-  passed[ORB]    :    445
-  total_bars     : 241556
-  ctx_none       :      0
-  dol_none       :  11016
-  zone_gate      : 131756
-  kill_zone      :  68308
-  module_miss    :  25932
-  rr_skip        :    417
-  wrong_side     :      0
-  signals        :    862
-  pattern_raw_bull:   1569
-  pattern_raw_bear:   1425
-  dq_skip        :  14698
-
-
-=== EXPECTANCY: XAUUSD ===
-ORB: n=445 W/L/T=193/250/0 WR=43% exp=-0.06R PF=0.85 total=-26.2R
-    bootstrap CI: [5%=-0.125R, 95%=+0.014R] (n_resamples=2000)
-
-MAE  min/median: -3.44 / -0.62 R
-MFE  median/max: 0.45 / 3.88 R
-Trades that reached 4R but did not end WIN: 0
-
-=== PERMUTATION SHADOW (skill null, exp-PERM) ===
-ORB_PERM: n=445 exp=-0.03R shadow 95th-pct bound (skill bar): +0.038R

@@ -1,33 +1,0 @@
-[1;33mThank you for using SmartMoneyConcepts! ⭐ Please show your support by giving a star on the GitHub repository: [4;34mhttps://github.com/joshyattridge/smart-money-concepts[0m
-Backtesting 64744 bars: 2016-01-03 22:00:00+00:00 -> 2026-05-31 23:00:00+00:00  [db=bt_exp011_eur.db]
-CONFIG: swing_length=5 target=next_swing
-COST: spread(full,at-entry)=2xhalf + slippage=25% -> model charges 1.25x spread
-Processing 64623 bars (warmup=120, bar=60min, ctx=1h)...Processing 64623 bars: 8% (4880/64623)Processing 64623 bars: 15% (9880/64623)Processing 64623 bars: 23% (14880/64623)Processing 64623 bars: 31% (19880/64623)Processing 64623 bars: 39% (24880/64623)Processing 64623 bars: 46% (29880/64623)Processing 64623 bars: 54% (34880/64623)Processing 64623 bars: 62% (39880/64623)Processing 64623 bars: 69% (44880/64623)Processing 64623 bars: 77% (49880/64623)Processing 64623 bars: 85% (54880/64623)Processing 64623 bars: 93% (59880/64623)Processing complete. Finalizing trades... done.
-
-=== GATE SKIP COUNTERS ===
-  fired[TSMOM]   :     80
-  passed[TSMOM]  :     80
-  total_bars     :  64623
-  ctx_none       :      0
-  dol_none       :   4168
-  zone_gate      :  34768
-  kill_zone      :  18701
-  module_miss    :   1895
-  rr_skip        :      0
-  wrong_side     :      0
-  signals        :     80
-  pattern_raw_bull:    581
-  pattern_raw_bear:    565
-  dq_skip        :   9179
-
-
-=== EXPECTANCY: EURUSD ===
-TSMOM: n=80 W/L/T=33/47/0 WR=41% exp=-0.05R PF=0.89 total=-4.2R
-    bootstrap CI: [5%=-0.248R, 95%=+0.156R] (n_resamples=2000)
-
-MAE  min/median: -5.15 / -0.82 R
-MFE  median/max: 0.73 / 4.17 R
-Trades that reached 4R but did not end WIN: 1
-
-=== PERMUTATION SHADOW (skill null, exp-PERM) ===
-TSMOM_PERM: n=80 exp=-0.13R shadow 95th-pct bound (skill bar): +0.066R
