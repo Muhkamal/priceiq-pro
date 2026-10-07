@@ -235,10 +235,14 @@ class BacktestEngine:
         for mod in sorted(set(self.module_fired) | set(self.module_signals)):
             print(f"  fired[{mod}]".ljust(17) + f": {self.module_fired.get(mod, 0):>6}")
             print(f"  passed[{mod}]".ljust(17) + f": {self.module_signals.get(mod, 0):>6}")
+        for mname, rej in getattr(self, "module_rejects", {}).items():
+            if rej:
+                print(f"  rej[{mname}]".ljust(17) + f": {rej}")
         for gate, count in self.gate_counts.items():
             print(f"  {gate:<15}: {count:>6}")
         print("")
         
+        self.module_rejects = {m.name: dict(getattr(m, "_rej", {})) for m in modules}
         return self.journal.get_all_modules_expectancy()
 
     def _manage_trades(self, bar, idx):

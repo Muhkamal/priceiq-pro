@@ -1,23 +1,12 @@
 """POI_Retest (exp-012) - canonical SMC sweep-reversal entry. BACKTEST-ONLY.
 
-Implements the frozen exp-012 spec (experiments.jsonl):
-  sweep      : low takes out the prior SWING-bar low within SWEEP_LOOKBACK, bar
-               closes bullish (reclaim) [symmetric for shorts]
-  displacement: first post-sweep bar with body/range >= 0.6 and range >= 1.5x
-               ATR(14,M5), within 10 bars of the sweep
-  POI        : last opposite-close candle before the displacement bar (order
-               block); DEAD if price traded beyond its far edge after the
-               displacement (mitigation) - unmitigated required
-  tap        : current bar re-enters [OB low, OB high]
-  confirm    : post-tap M5 CHoCH proxy - a micro low swept (2nd half of the
-               last 2xMICRO bars takes out 1st-half lows) AND current close
-               above the prior MICRO-bar high [symmetric inverted]
-  entry/exit : next-open fill; SL = sweep extreme +/- 0.25xATR buffer;
-               TP = opposing liquidity (pdh / 4h DOL beyond entry);
-               runner RR>=2 gate arbitrates
-  state      : one trade per sweep event per pair; cooldown 24 bars
-EFFICIENCY: all math on a 320-bar tail window - full-series work per call is
-O(n) and would make the 10y M5 run take days.
+Frozen spec: experiments.jsonl exp-012 + exp-012-corr-1 (zero-fire rule,
+plumbing exception) + exp-012-corr-2 (TP = NEAREST opposing pool beyond
+cost-adjusted entry; RR>=2 gate applies; nearest < 2R -> rr_skip).
+Dedup: one trade per sweep EVENT, keyed by absolute timestamp (tail-window
+indices shift every bar - exp-012-corr-1 pre-flight fix).
+Rejection counters (_rej) expose why candidates die, per the zero-fire
+attribution contingency.
 """
 import pandas as pd
 from .base import EntryModule
@@ -39,6 +28,10 @@ class PoiRetracement(EntryModule):
     def __init__(self):
         self._cool = {}
         self._traded_sweeps = {}
+        self._rej = {}
+
+    def _bump(self, reason):
+        self._rej[reason] = self._rej.get(reason, 0) + 1
 
     def _atr(self, df):
         h, l, c = df["high"], df["low"], df["close"]
@@ -59,13 +52,13 @@ class PoiRetracement(EntryModule):
         n = len(df)
         atr = self._atr(df)
         if not pd.notna(atr) or atr <= 0:
+            self._bump("no_atr")
             return None
         o, h, l, c = df["open"], df["high"], df["low"], df["close"]
         close = float(c.iloc[-1])
         traded = self._traded_sweeps.setdefault(pair, set())
 
         for long in (True, False):
-            # --- locate most recent qualifying sweep bar k ---
             k = None
             lo = max(self.SWING, n - 2 - self.SWEEP_LOOKBACK)
             for kk in range(n - 3, lo, -1):
@@ -78,10 +71,14 @@ class PoiRetracement(EntryModule):
                     if h.iloc[kk] > prior.max() and c.iloc[kk] < o.iloc[kk]:
                         k = kk
                         break
-            if k is None or k in traded:
+            if k is None:
+                self._bump("no_sweep")
+                continue
+            abs_k = df_full.index[last_i - (n - 1 - k)]
+            if abs_k in traded:
+                self._bump("sweep_already_traded")
                 continue
             sweep_extreme = float(l.iloc[k]) if long else float(h.iloc[k])
-            # --- displacement bar within k+1 .. k+10 ---
             j = None
             for jj in range(k + 1, min(k + 11, n - 1)):
                 rng = h.iloc[jj] - l.iloc[jj]
@@ -91,43 +88,44 @@ class PoiRetracement(EntryModule):
                     j = jj
                     break
             if j is None:
+                self._bump("no_displacement")
                 continue
-            # --- order block: last opposite-close candle in [k, j-1] ---
             m = None
             for mm in range(j - 1, k - 1, -1):
-                if (c.iloc[mm] < o.iloc[mm]) == long:   # opposite to the move
+                if (c.iloc[mm] < o.iloc[mm]) == long:
                     m = mm
                     break
             if m is None:
+                self._bump("no_ob")
                 continue
             ob_lo, ob_hi = float(l.iloc[m]), float(h.iloc[m])
-            # --- unmitigated: nothing beyond OB far edge after j ---
             after = df.iloc[j + 1:]
             if len(after) == 0:
+                self._bump("no_after")
                 continue
             if long and after["low"].min() < ob_lo:
+                self._bump("ob_mitigated")
                 continue
             if not long and after["high"].max() > ob_hi:
+                self._bump("ob_mitigated")
                 continue
-            # --- tap: current bar inside the zone ---
             if not (float(l.iloc[-1]) <= ob_hi and close >= ob_lo):
+                self._bump("no_tap")
                 continue
-            # --- confirmation: micro low swept, close through micro high ---
             if n < 2 * self.MICRO + 1:
+                self._bump("no_micro")
                 continue
             first = l.iloc[n - 2 * self.MICRO:n - self.MICRO]
             second = l.iloc[n - self.MICRO:]
             if long:
-                swept = second.min() < first.min()
-                through = close > float(h.iloc[n - self.MICRO - 1:n - 1].max())
-                ok = swept and through
+                ok = second.min() < first.min() and \
+                     close > float(h.iloc[n - self.MICRO - 1:n - 1].max())
             else:
-                swept = second.max() > first.max()
-                through = close < float(l.iloc[n - self.MICRO - 1:n - 1].min())
-                ok = swept and through
+                ok = second.max() > first.max() and \
+                     close < float(l.iloc[n - self.MICRO - 1:n - 1].min())
             if not ok:
+                self._bump("no_confirm")
                 continue
-            # --- opposing liquidity target ---
             ref = close + 1.25 * (get_spread(pair) or 0.0) if long else \
                   close - 1.25 * (get_spread(pair) or 0.0)
             tp = None
@@ -137,18 +135,18 @@ class PoiRetracement(EntryModule):
                 except (TypeError, ValueError):
                     continue
                 if long and cand > ref:
-                    tp = cand if tp is None else max(tp, cand)
+                    tp = cand if tp is None else min(tp, cand)   # corr-2: NEAREST
                 if not long and cand < ref:
-                    tp = cand if tp is None else min(tp, cand)
+                    tp = cand if tp is None else max(tp, cand)
             if tp is None:
+                self._bump("no_tp_candidate")
                 continue
             sl = sweep_extreme - self.SL_BUF * atr if long else \
                  sweep_extreme + self.SL_BUF * atr
-            traded.add(k)
+            traded.add(abs_k)
             self._cool[pair] = last_i
             return {"direction": "BUY" if long else "SELL", "ref_price": ref,
                     "sl": float(sl), "tp": float(tp),
-                    "reason": f"POI_Retest {'LONG' if long else 'SHORT'} k={k} j={j} "
-                              f"OB[{ob_lo:.5f},{ob_hi:.5f}]",
+                    "reason": f"POI_Retest {'LONG' if long else 'SHORT'} OB[{ob_lo:.5f},{ob_hi:.5f}]",
                     "module": self.name, "entry": "next_open"}
         return None
