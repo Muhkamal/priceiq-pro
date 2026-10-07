@@ -21,8 +21,9 @@ from ..entries.indicator_confluence import IndicatorConfluence
 from ..entries.random_control import RandomControl, FROZEN_SEED, FROZEN_FIRE_PROB
 from ..entries.orb import OpeningRangeBreakout
 from ..entries.tsmom import TSMomentum
+from ..entries.poi_retest import PoiRetracement
 
-MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM, "indicator_confluence": IndicatorConfluence, "orb": OpeningRangeBreakout, "tsmom": TSMomentum}
+MODULE_REGISTRY = {"choch_no_idm": ChoChNoIDM, "scm": SingleCandleMitigation, "double_bos": DoubleBreakout, "choch_idm": ChoChIDM, "indicator_confluence": IndicatorConfluence, "orb": OpeningRangeBreakout, "tsmom": TSMomentum, "poi_retest": PoiRetracement}
 # RandomControl is intentionally absent from MODULE_REGISTRY: it must never be
 # addable via system.yaml's entry_modules list (backtest or live). It is only
 # ever run via the --control CLI flag below, which swaps the module list
