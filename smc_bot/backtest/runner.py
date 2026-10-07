@@ -169,7 +169,7 @@ class BacktestEngine:
             
             direction = signal["direction"]
             next_open = df_m5.iloc[i + 1]["open"]
-            entry = next_open + 1.25 * spread if direction == "BUY" else next_open - 1.25 * spread
+            entry = next_open + args.cost_mult * spread if direction == "BUY" else next_open - args.cost_mult * spread
             sl, tp = signal["sl"], signal["tp"]
             risk = abs(entry - sl)
             reward = (tp - entry) if direction == "BUY" else (entry - tp)
@@ -390,6 +390,8 @@ if __name__ == "__main__":
                          "0.5 / 1.0 / 2.0 / 3.0). Does not affect RNG stream.")
     ap.add_argument("--context-tf", default="15min", choices=["15min", "1h", "4h"],
                     help="Context resample rule (exp-011: 1h for TSMOM)")
+    ap.add_argument("--cost-mult", type=float, default=1.25,
+                    help="Entry cost multiplier on full spread (exp-013 sensitivity arms)")
     ap.add_argument("--time-stop-bars", type=int, default=None,
                     help="Override time_stop_bars (exp-011 H1: 240 = 10 days)")
     ap.add_argument("--modules", default=None,
