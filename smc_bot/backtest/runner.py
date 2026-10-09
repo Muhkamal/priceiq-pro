@@ -428,7 +428,7 @@ if __name__ == "__main__":
             raise SystemExit(f"Window too small: {len(df)} bars - check --start/--end")
         print(f"Backtesting {len(df)} bars: {df.index[0]} -> {df.index[-1]}  [db={db_path}]")
         print(f"CONFIG: swing_length={config.params.swing_length} target={config.params.continuation_target}")
-        print(f"COST: spread(full,at-entry)=2xhalf + slippage=25% -> model charges 1.25x spread")
+        print(f"COST: model charges {args.cost_mult}x spread (full spread at entry + slippage top-up)")
         modules_override = None
         if args.control:
             print(f"*** CONTROL MODE: only RandomControl(seed={args.control_seed}, "
